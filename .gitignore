@@ -4,6 +4,8 @@
 /node_modules
 /.pnp
 .pnp.js
+./telemetry_simulator/node_modules
+./websocket/node_modules
 
 # testing
 /coverage
