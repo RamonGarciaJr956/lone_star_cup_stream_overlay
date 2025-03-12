@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Rocket, Lock, User, Shield, Eye, EyeOff } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 
-const AdminSignIn = () => {
+// Create a separate component that uses useSearchParams
+const SignInForm = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
 
@@ -52,6 +53,97 @@ const AdminSignIn = () => {
     };
 
     return (
+        <form onSubmit={handleSignIn}>
+            {error && (
+                <div className="bg-red-100 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-4">
+                    {error}
+                </div>
+            )}
+            <div className="mb-5">
+                <label htmlFor="email" className="text-xs text-blue-400 font-bold flex items-center mb-2">
+                    <User size={12} className="mr-1" />
+                    EMAIL
+                </label>
+                <div className="relative">
+                    <input
+                        id="email"
+                        type="email"
+                        value={info.email}
+                        onChange={(e) => setInfo({ ...info, email: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="admin@lonestar.cup"
+                        required
+                    />
+                </div>
+            </div>
+
+            <div className="mb-6">
+                <label htmlFor="password" className="text-xs text-blue-400 font-bold flex items-center mb-2">
+                    <Lock size={12} className="mr-1" />
+                    PASSWORD
+                </label>
+                <div className="relative">
+                    <input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        value={info.password}
+                        onChange={(e) => setInfo({ ...info, password: e.target.value })}
+                        className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="••••••••"
+                        required
+                    />
+                    <button
+                        type="button"
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
+                        onClick={() => setShowPassword(!showPassword)}
+                    >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                </div>
+            </div>
+
+            <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            >
+                {isLoading ? (
+                    <div className="flex items-center justify-center">
+                        <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        AUTHENTICATING
+                    </div>
+                ) : (
+                    "SIGN IN"
+                )}
+            </button>
+        </form>
+    );
+};
+
+// Loading fallback component
+const FormSkeleton = () => (
+    <div className="animate-pulse">
+        <div className="h-4 bg-slate-700 rounded mb-6"></div>
+        <div className="space-y-5">
+            <div>
+                <div className="h-3 w-12 bg-slate-700 rounded mb-2"></div>
+                <div className="h-10 bg-slate-700 rounded"></div>
+            </div>
+            <div>
+                <div className="h-3 w-16 bg-slate-700 rounded mb-2"></div>
+                <div className="h-10 bg-slate-700 rounded"></div>
+            </div>
+            <div className="h-10 bg-slate-700 rounded mt-6"></div>
+        </div>
+    </div>
+);
+
+// Main component
+const AdminSignIn = () => {
+    return (
         <div className="min-h-screen text-white font-sans flex flex-col" style={{
             background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
             fontFamily: 'Roboto, Arial, sans-serif',
@@ -84,73 +176,9 @@ const AdminSignIn = () => {
                         </div>
 
                         <div className="p-6">
-                            {error && (
-                                <div className="bg-red-100 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-4">
-                                    {error}
-                                </div>
-                            )}
-                            <form onSubmit={handleSignIn}>
-                                <div className="mb-5">
-                                    <label htmlFor="email" className="text-xs text-blue-400 font-bold flex items-center mb-2">
-                                        <User size={12} className="mr-1" />
-                                        EMAIL
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            id="email"
-                                            type="email"
-                                            value={info.email}
-                                            onChange={(e) => setInfo({ ...info, email: e.target.value })}
-                                            className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            placeholder="admin@lonestar.cup"
-                                            required
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="mb-6">
-                                    <label htmlFor="password" className="text-xs text-blue-400 font-bold flex items-center mb-2">
-                                        <Lock size={12} className="mr-1" />
-                                        PASSWORD
-                                    </label>
-                                    <div className="relative">
-                                        <input
-                                            id="password"
-                                            type={showPassword ? "text" : "password"}
-                                            value={info.password}
-                                            onChange={(e) => setInfo({ ...info, password: e.target.value })}
-                                            className="w-full bg-slate-800 border border-slate-700 rounded p-3 text-white placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                            placeholder="••••••••"
-                                            required
-                                        />
-                                        <button
-                                            type="button"
-                                            className="absolute right-3 top-1/2 transform -translate-y-1/2 text-slate-400 hover:text-white"
-                                            onClick={() => setShowPassword(!showPassword)}
-                                        >
-                                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    disabled={isLoading}
-                                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                                >
-                                    {isLoading ? (
-                                        <div className="flex items-center justify-center">
-                                            <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            AUTHENTICATING
-                                        </div>
-                                    ) : (
-                                        "SIGN IN"
-                                    )}
-                                </button>
-                            </form>
+                            <Suspense fallback={<FormSkeleton />}>
+                                <SignInForm />
+                            </Suspense>
                         </div>
                     </div>
 

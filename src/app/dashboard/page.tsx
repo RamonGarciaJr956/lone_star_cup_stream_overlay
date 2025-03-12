@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import {
     Rocket,
     ArrowUp,
-    Thermometer,
     Wind,
     User,
     MapPin,
@@ -18,10 +17,11 @@ import {
     Play,
     Check,
     X,
-    Upload,
     Info,
     Settings,
-    Radio
+    Radio,
+    RefreshCw,
+    AlertTriangle
 } from 'lucide-react';
 import { useSocket } from '~/providers/SocketProvider';
 import Image from 'next/image';
@@ -34,6 +34,7 @@ const AdminDashboard = () => {
         division: string;
         hasLiveTelemetry: boolean;
         location: string;
+        launchTime: null | Date;
         events: Array<{
             id: string;
             text: string;
@@ -42,25 +43,59 @@ const AdminDashboard = () => {
         }>;
     }
 
+    type altitudePlotPoint = {
+        altitude: number;
+        time: string;
+    }
+
+    interface TelemetryStream {
+        id: number;
+        teamId: number;
+        timestamp: string;
+        altitude: number;
+        altitudePlot: altitudePlotPoint[];
+        velocity: number;
+        acceleration: number;
+        temperature: number;
+        maxAltitude: number | null;
+        maxVelocity: number | null;
+        pressure: number;
+        status: string;
+    }
+
+    type Client = {
+        role: string;
+        teamId: number;
+        name?: string;
+    }
+
+    type telemetryHistory = TelemetryStream[];
+
     const [activeTeam, setActiveTeam] = useState<Team | undefined>(undefined);
-    const [status, setStatus] = useState<"general" | "flight">("general"); // "general" or "flight"
+    const [status, setStatus] = useState<"general" | "flight">("general");
     const [showDetailed, setShowDetailed] = useState(false);
     const [socketConnected, setSocketConnected] = useState(false);
     const [connectionId, setConnectionId] = useState("Not connected");
     const socket = useSocket();
+    const [currentTime, setCurrentTime] = useState('13:42 CST');
+    const [telemetryStreams, setTelemetryStreams] = useState<TelemetryStream[]>([]);
+    const [connectedTeams, setConnectedTeams] = useState<number[]>([]);
+    const [lastUpdated, setLastUpdated] = useState<Record<number, string>>({});
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
-    // Mock data for teams
-    const [teams, setTeams] = useState([
+    const [teams, setTeams] = useState<Team[]>([
         {
             id: 1,
             name: "Houston Rocketeers",
             rocketName: "Texas Titan MK2",
             division: "Collegiate",
-            hasLiveTelemetry: true,
+            hasLiveTelemetry: false,
             location: "Seymour Launch Site, TX",
+            launchTime: null,
             events: [
                 { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+0:03" },
+                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
                 { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
                 { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
                 { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
@@ -75,9 +110,10 @@ const AdminDashboard = () => {
             division: "Collegiate",
             hasLiveTelemetry: false,
             location: "Seymour Launch Site, TX",
+            launchTime: null,
             events: [
                 { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+0:03" },
+                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
                 { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
                 { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
                 { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
@@ -90,11 +126,12 @@ const AdminDashboard = () => {
             name: "Dallas Dynamics",
             rocketName: "Maverick Prime",
             division: "Collegiate",
-            hasLiveTelemetry: true,
+            hasLiveTelemetry: false,
             location: "Seymour Launch Site, TX",
+            launchTime: null,
             events: [
                 { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+0:03" },
+                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
                 { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
                 { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
                 { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
@@ -104,45 +141,180 @@ const AdminDashboard = () => {
         }
     ]);
 
-    // Mock telemetry streams
-    const [telemetryStreams, setTelemetryStreams] = useState([
-        { id: 1, teamId: 1, timestamp: new Date().toISOString(), altitude: 1458, velocity: 242, acceleration: 21.4, temperature: 42, maxAltitude: null, maxVelocity: 324, pressure: 84.3, status: "OK" },
-        { id: 2, teamId: 3, timestamp: new Date().toISOString(), altitude: 980, velocity: 198, acceleration: 19.2, temperature: 39, maxAltitude: null, maxVelocity: 289, pressure: 86.1, status: "OK" }
-    ]);
+    const updateLocalTime = () => {
+        try {
+            const options = {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+                timeZone: 'America/Chicago' // Central Time for Texas
+            } as const;
 
-    // Simulate telemetry updating
+            const timeString = new Date().toLocaleTimeString('en-US', options);
+            setCurrentTime(`${timeString} CST`);
+        } catch (error) {
+            console.error('Error updating local time:', error);
+        }
+    };
+
+    // Update local time immediately and then every minute
     useEffect(() => {
-        const interval = setInterval(() => {
-            setTelemetryStreams(prev => prev.map(stream => ({
-                ...stream,
-                timestamp: new Date().toISOString(),
-                altitude: stream.altitude + Math.floor(Math.random() * 10) - 2,
-                velocity: stream.velocity + Math.floor(Math.random() * 6) - 3,
-                acceleration: parseFloat((stream.acceleration + Math.random() - 0.5).toFixed(1)),
-                temperature: stream.temperature + Math.floor(Math.random() * 2) - 1,
-            })));
-        }, 2000);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    useEffect(() => {
-        if (!socket) return;
-        console.log("Socket connected");
-        setSocketConnected(true);
-        setConnectionId(`LSC-${Math.floor(100000 + Math.random() * 900000)}`);
+        updateLocalTime();
+        const timeInterval = setInterval(updateLocalTime, 60 * 1000);
 
         return () => {
-            socket.off("commands");
-        };
+            clearInterval(timeInterval);
+        }
+    }, []);
 
-    }, [socket]);
-
-    const sendCommand = (command: string) => {
+    // Socket connection and telemetry handling
+    useEffect(() => {
         if (!socket) return;
 
+        // Register as admin
+        socket.emit('register', {
+            role: 'admin',
+            name: 'LSC Admin Panel'
+        });
+
+        // Handle connection success
+        socket.on('connect', () => {
+            console.log("Socket connected:", socket.id);
+            setSocketConnected(true);
+            setConnectionId(`LSC-${Math.floor(100000 + Math.random() * 900000)}`);
+            setError(null);
+        });
+
+        // Handle connection errors
+        socket.on('connect_error', (err) => {
+            console.error("Socket connection error:", err);
+            setSocketConnected(false);
+            setError(`Connection error: ${err.message}`);
+        });
+
+        socket.on('client-connected', (client: Client) => {
+            console.log("Client connected:", client);
+            if (client.role === 'team' && client.teamId) {
+                setConnectedTeams(prev => {
+                    if (!prev.includes(client.teamId)) {
+                        return [...prev, client.teamId];
+                    }
+                    return prev;
+                });
+
+                setTeams(prev => prev.map(team => {
+                    if (team.id === client.teamId) {
+                        return { ...team, hasLiveTelemetry: true };
+                    }
+                    return team;
+                }));
+            }
+        });
+
+        // Client disconnection tracking
+        socket.on('client-disconnected', (client: Client) => {
+            console.log("Client disconnected:", client);
+            if (client.role === 'team' && client.teamId) {
+                setConnectedTeams(prev => prev.filter(id => id !== client.teamId));
+            }
+        });
+
+        // Handle incoming telemetry updates
+        socket.on('telemetry-update', (data: TelemetryStream) => {
+            // Update timestamp of last received data
+            setLastUpdated(prev => ({
+                ...prev,
+                [data.teamId]: new Date().toLocaleTimeString()
+            }));
+
+            // Update telemetry streams
+            setTelemetryStreams(prev => {
+                // Check if we already have a stream for this team
+                const existingIndex = prev.findIndex(stream => stream.teamId === data.teamId);
+
+                if (existingIndex >= 0) {
+                    // Update existing stream
+                    const updated = [...prev];
+                    updated[existingIndex] = data;
+                    return updated;
+                } else {
+                    // Add new stream
+                    return [...prev, data];
+                }
+            });
+
+            // Mark the team as having live telemetry
+            setTeams(prev => prev.map(team => {
+                if (team.id === data.teamId) {
+                    return { ...team, hasLiveTelemetry: true };
+                }
+                return team;
+            }));
+
+            if(activeTeam && activeTeam.id === data.teamId) {
+                socket.emit('current-team-telemetry-update', data);
+            }
+        });
+
+        // Receive telemetry history
+        socket.on('telemetry-history', (history: telemetryHistory) => {
+            console.log("Received telemetry history:", history);
+            setIsLoading(false);
+
+            socket.emit('current-team-telemetry-update', history[history.length - 1]);
+
+            if (history && history.length > 0) {
+                // Update the telemetry with the latest data point
+                const latestData = history[history.length - 1];
+
+                // Add a null check for latestData
+                if (latestData) {
+                    setTelemetryStreams(prev => {
+                        const existingIndex = prev.findIndex(stream => stream.teamId === latestData.teamId);
+
+                        if (existingIndex >= 0) {
+                            const updated = [...prev];
+                            updated[existingIndex] = latestData;
+                            return updated;
+                        } else {
+                            return [...prev, latestData];
+                        }
+                    });
+
+                    // Update last updated timestamp
+                    setLastUpdated(prev => ({
+                        ...prev,
+                        [latestData.teamId]: new Date().toLocaleTimeString()
+                    }));
+                }
+            }
+        });
+
+        // Handle disconnection
+        socket.on('disconnect', () => {
+            console.log("Socket disconnected");
+            setSocketConnected(false);
+            setConnectionId("Not connected");
+        });
+
+        return () => {
+            socket.off('connect');
+            socket.off('connect_error');
+            socket.off('client-connected');
+            socket.off('client-disconnected');
+            socket.off('telemetry-update');
+            socket.off('telemetry-history');
+            socket.off('disconnect');
+        };
+    }, [socket, activeTeam]);
+
+    const sendCommand = (command: string) => {
+        if (!socket || !socketConnected) {
+            setError("Can't send command: Socket not connected");
+            return;
+        }
+
         console.log(`Sending command: ${command}`);
-        // In a real implementation, this would send the command to the socket
         socket.emit("command", command);
 
         // Simulate command responses for UI feedback
@@ -154,67 +326,43 @@ const AdminDashboard = () => {
             setStatus("general");
         } else if (command === "status-flight") {
             setStatus("flight");
-        } else if (command.startsWith("event-")) {
-            // Update local event status for UI feedback
-            const eventId = command.split("-")[1];
-            const eventStatus = command.split("-")[2];
-
-            if (activeTeam) {
-                const updatedTeams = teams.map(team => {
-                    if (team.id === activeTeam.id) {
-                        const updatedEvents = team.events.map(event => {
-                            if (event.id === eventId) {
-                                return { ...event, status: eventStatus as "pending" | "inProgress" | "complete" };
-                            }
-                            return event;
-                        });
-                        return { ...team, events: updatedEvents };
-                    }
-                    return team;
-                });
-
-                setTeams(updatedTeams);
-                setActiveTeam(updatedTeams.find(t => t.id === activeTeam.id));
-            }
         }
     };
 
     const handleSelectTeam = (team: Team) => {
+        setActiveTeam(team);
+
+        if(!team.hasLiveTelemetry){
+            sendCommand('details-hide');
+            setShowDetailed(false);
+        }
+
+        if (socket && socketConnected && team.hasLiveTelemetry) {
+            setIsLoading(true);
+            socket.emit('request-telemetry-history', team.id);
+        }
+
+        // Send event statuses to overlay
         team.events.forEach(event => {
-            sendCommand(`event-${event.id}-${event.status}`);
+            sendCommand(`event-${event.id}-${event.status}-${event.time}`);
         });
+
+        // Send team info to overlay
         sendCommand("info-team-" + team.name);
         sendCommand("info-rocket-" + team.rocketName);
 
-        setActiveTeam(team);
+        // Switch to flight view
         sendCommand("status-flight");
     };
 
-    interface TelemetryStream {
-        id: number;
-        teamId: number;
-        timestamp: string;
-        altitude: number;
-        velocity: number;
-        acceleration: number;
-        temperature: number;
-        maxAltitude: number | null;
-        maxVelocity: number;
-        pressure: number;
-        status: string;
-    }
+    const refreshTelemetry = () => {
+        if (!activeTeam || !socket || !socketConnected) return;
 
-    const handleSelectTelemetry = (stream: TelemetryStream) => {
-        // This would normally send the telemetry data to the overlay
-        console.log(`Selected telemetry stream for team ID: ${stream.teamId}`);
-
-        // In a real implementation, you would push this data to the overlay
-        // socket.emit("telemetry", stream);
+        setIsLoading(true);
+        socket.emit('request-telemetry-history', activeTeam.id);
     };
 
-    interface EventStatus {
-        status: "pending" | "inProgress" | "complete";
-    }
+    type EventStatus = "pending" | "inProgress" | "complete";
 
     const handleToggleEventStatus = (eventId: string): void => {
         if (!activeTeam) return;
@@ -222,7 +370,7 @@ const AdminDashboard = () => {
         const event = activeTeam.events.find(e => e.id === eventId);
         if (!event) return;
 
-        let newStatus: EventStatus["status"];
+        let newStatus: EventStatus;
         switch (event.status) {
             case "pending":
                 newStatus = "inProgress";
@@ -237,18 +385,35 @@ const AdminDashboard = () => {
                 newStatus = "pending";
         }
 
-        // Create a deep copy of the activeTeam to update
+        const newLaunchTime = eventId === "launch" && newStatus === "complete" ? new Date() : activeTeam.launchTime;
+
         const updatedActiveTeam = {
             ...activeTeam,
+            launchTime: newLaunchTime,
             events: activeTeam.events.map(e => {
                 if (e.id === eventId) {
+                    if (newStatus === "pending" && e.id !== "launch") {
+                        return {
+                            ...e,
+                            status: newStatus,
+                            time: `T+????`,
+                        };
+                    }
+
+                    if (newStatus === "complete" && e.id !== "launch" && newLaunchTime) {
+                        const secondsSinceLaunch = Math.round((new Date().getTime() - newLaunchTime.getTime()) / 1000);
+                        return {
+                            ...e,
+                            status: newStatus,
+                            time: `T+${secondsSinceLaunch}s`,
+                        };
+                    }
                     return { ...e, status: newStatus };
                 }
                 return e;
-            })
+            }),
         };
 
-        // Create updated teams array
         const updatedTeams = teams.map(team => {
             if (team.id === activeTeam.id) {
                 return updatedActiveTeam;
@@ -256,12 +421,17 @@ const AdminDashboard = () => {
             return team;
         });
 
-        // Update both state values
-        setTeams(updatedTeams);
         setActiveTeam(updatedActiveTeam);
+        setTeams(updatedTeams);
 
-        // Then send the command
-        sendCommand(`event-${eventId}-${newStatus}`);
+        if (newStatus === "complete" && eventId !== "launch" && newLaunchTime) {
+            const secondsSinceLaunch = Math.round((new Date().getTime() - newLaunchTime.getTime()) / 1000);
+            sendCommand(`event-${eventId}-${newStatus}-${`T+${secondsSinceLaunch}s`}`);
+        } else if (newStatus === "pending" && eventId !== "launch") {
+            sendCommand(`event-${eventId}-${newStatus}-${`T+????`}`);
+        } else {
+            sendCommand(`event-${eventId}-${newStatus}`);
+        }
     };
 
     return (
@@ -270,7 +440,7 @@ const AdminDashboard = () => {
                 {/* Header */}
                 <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-800">
                     <div className="flex items-center">
-                        <Image src="/LoneStarCupLogo.png" width={24} height={24} alt="Lone Star Cup" className='mr-2'/>
+                        <Image src="/LoneStarCupLogo.png" width={24} height={24} alt="Lone Star Cup" className='mr-2' />
                         <h1 className="text-2xl font-bold tracking-wider">LONE STAR CUP ADMIN</h1>
                         <div className="ml-4 px-3 py-1 bg-blue-900 bg-opacity-40 rounded text-xs font-semibold">
                             CONTROLLER
@@ -287,10 +457,24 @@ const AdminDashboard = () => {
 
                         <div className="flex items-center">
                             <Clock size={16} className="mr-2 text-blue-400" />
-                            <span className="text-sm font-mono">13:42 CST</span>
+                            <span className="text-sm font-mono">{currentTime}</span>
                         </div>
                     </div>
                 </div>
+
+                {/* Error message display */}
+                {error && (
+                    <div className="mb-4 bg-red-900 bg-opacity-30 border border-red-700 p-3 rounded-lg flex items-center">
+                        <AlertTriangle size={16} className="mr-2 text-red-400" />
+                        <span className="text-sm">{error}</span>
+                        <button
+                            className="ml-auto text-red-400 hover:text-red-300"
+                            onClick={() => setError(null)}
+                        >
+                            <X size={16} />
+                        </button>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-12 gap-6">
                     {/* Left sidebar - Team selection */}
@@ -311,9 +495,9 @@ const AdminDashboard = () => {
                                         <div className="flex justify-between items-center mb-2">
                                             <div className="font-medium uppercase">{team.name}</div>
                                             {team.hasLiveTelemetry && (
-                                                <div className="px-2 py-0.5 bg-green-900 bg-opacity-30 rounded text-xs text-green-400 font-semibold flex items-center">
+                                                <div className={`px-2 py-0.5 rounded text-xs font-semibold flex items-center ${connectedTeams.includes(team.id) ? 'bg-green-900 bg-opacity-30 text-green-400' : 'bg-yellow-900 bg-opacity-30 text-yellow-400'}`}>
                                                     <Zap size={10} className="mr-1" />
-                                                    LIVE
+                                                    {connectedTeams.includes(team.id) ? 'LIVE' : 'DATA'}
                                                 </div>
                                             )}
                                         </div>
@@ -412,124 +596,190 @@ const AdminDashboard = () => {
                                             </div>
                                         </div>
 
-                                        <div className="mt-6">
-                                            <h3 className="text-sm uppercase text-slate-400 mb-3 flex items-center">
-                                                <Timer size={14} className="mr-2 text-blue-400" />
-                                                Event Control
-                                            </h3>
+                                        {/* Flight event controls */}
+                                        <div className="px-4 py-3 border-y border-slate-700 flex items-center">
+                                            <Clock size={16} className="mr-2 text-blue-400" />
+                                            <span className="font-bold text-sm tracking-wider">FLIGHT EVENTS</span>
+                                        </div>
 
-                                            <div className="grid grid-cols-1 gap-2">
-                                                {activeTeam.events.map(event => (
+                                        <div className="p-4 max-h-[400px] overflow-y-auto">
+                                            {activeTeam.events.map((event) => (
+                                                <div key={event.id} className="mb-3 flex items-center justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center">
+                                                            <div
+                                                                className={`w-3 h-3 rounded-full mr-2 ${event.status === "complete" ? "bg-green-500" :
+                                                                    event.status === "inProgress" ? "bg-yellow-500 animate-pulse" :
+                                                                        "bg-slate-500"
+                                                                    }`}
+                                                            />
+                                                            <div className="text-sm font-medium">{event.text}</div>
+                                                        </div>
+                                                        <div className="text-xs font-mono ml-5 text-slate-400">{event.time}</div>
+                                                    </div>
                                                     <button
-                                                        key={event.id}
-                                                        className={`py-2 px-3 rounded-lg flex items-center justify-between border hover:bg-opacity-50 transition-colors ${event.status === 'complete' ? 'bg-green-900 bg-opacity-30 border-green-700' :
-                                                            event.status === 'inProgress' ? 'bg-blue-900 bg-opacity-30 border-blue-700' :
-                                                                'bg-slate-700 border-slate-600'
+                                                        className={`px-3 py-1 text-xs font-medium rounded ${event.status === "complete" ? "bg-green-900 text-green-300 border border-green-700" :
+                                                            event.status === "inProgress" ? "bg-yellow-900 text-yellow-300 border border-yellow-700" :
+                                                                "bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600"
                                                             }`}
                                                         onClick={() => handleToggleEventStatus(event.id)}
                                                     >
-                                                        <div className="flex items-center">
-                                                            {event.status === 'complete' ? (
-                                                                <Check size={16} className="mr-2 text-green-400" />
-                                                            ) : event.status === 'inProgress' ? (
-                                                                <Play size={16} className="mr-2 text-blue-400 animate-pulse" />
-                                                            ) : (
-                                                                <div className="w-4 h-4 mr-2 rounded-full border border-slate-500"></div>
-                                                            )}
-                                                            <span>{event.text}</span>
-                                                        </div>
-                                                        <div className="text-xs font-mono text-slate-400">{event.time}</div>
+                                                        {event.status === "complete" ? (
+                                                            <Check size={14} className="inline mr-1" />
+                                                        ) : event.status === "inProgress" ? (
+                                                            <Play size={14} className="inline mr-1" />
+                                                        ) : (
+                                                            <Timer size={14} className="inline mr-1" />
+                                                        )}
+                                                        {event.status === "complete" ? "Completed" :
+                                                            event.status === "inProgress" ? "In Progress" : "Pending"}
                                                     </button>
-                                                ))}
-                                            </div>
+                                                </div>
+                                            ))}
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Telemetry section */}
+                                {/* Telemetry data */}
                                 <div className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700" style={{ boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)' }}>
-                                    <div className="px-4 py-3 border-b border-slate-700 flex items-center">
-                                        <BarChart3 size={16} className="mr-2 text-blue-400" />
-                                        <span className="font-bold text-sm tracking-wider">TELEMETRY STREAMS</span>
-                                    </div>
-
-                                    <div className="p-4">
-                                        {activeTeam.hasLiveTelemetry ? (
-                                            <>
-                                                <div className="mb-4 flex items-center">
-                                                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse mr-2"></div>
-                                                    <span className="text-sm text-green-400">Live Telemetry Available</span>
+                                    <div className="px-4 py-3 border-b border-slate-700 flex items-center justify-between">
+                                        <div className="flex items-center">
+                                            <BarChart3 size={16} className="mr-2 text-blue-400" />
+                                            <span className="font-bold text-sm tracking-wider">TELEMETRY DATA</span>
+                                        </div>
+                                        {activeTeam.hasLiveTelemetry && (
+                                            <div className="flex items-center space-x-2">
+                                                <button
+                                                    className="text-blue-400 hover:text-blue-300 p-1"
+                                                    onClick={refreshTelemetry}
+                                                    disabled={isLoading}
+                                                >
+                                                    <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+                                                </button>
+                                                <div className="text-xs bg-blue-900 bg-opacity-30 px-2 py-1 rounded">
+                                                    Updated: {lastUpdated[activeTeam.id] ?? "Never"}
                                                 </div>
-
-                                                {telemetryStreams
-                                                    .filter(stream => stream.teamId === activeTeam.id)
-                                                    .map(stream => (
-                                                        <div key={stream.id} className="bg-slate-700 rounded-lg p-4 mb-4 border border-slate-600">
-                                                            <div className="flex justify-between items-center mb-3">
-                                                                <div className="text-sm text-slate-300">Stream ID: {stream.id}</div>
-                                                                <div className="text-xs font-mono text-slate-400">{new Date(stream.timestamp).toLocaleTimeString()}</div>
-                                                            </div>
-
-                                                            <div className="grid grid-cols-2 gap-3 mb-3">
-                                                                <div className="bg-slate-800 p-2 rounded flex justify-between items-center">
-                                                                    <div className="flex items-center">
-                                                                        <ArrowUp size={14} className="mr-1 text-blue-400" />
-                                                                        <span className="text-xs">ALTITUDE</span>
-                                                                    </div>
-                                                                    <span className="font-mono">{stream.altitude} m</span>
-                                                                </div>
-
-                                                                <div className="bg-slate-800 p-2 rounded flex justify-between items-center">
-                                                                    <div className="flex items-center">
-                                                                        <Wind size={14} className="mr-1 text-blue-400" />
-                                                                        <span className="text-xs">VELOCITY</span>
-                                                                    </div>
-                                                                    <span className="font-mono">{stream.velocity} m/s</span>
-                                                                </div>
-
-                                                                <div className="bg-slate-800 p-2 rounded flex justify-between items-center">
-                                                                    <div className="flex items-center">
-                                                                        <Zap size={14} className="mr-1 text-blue-400" />
-                                                                        <span className="text-xs">ACCEL</span>
-                                                                    </div>
-                                                                    <span className="font-mono">{stream.acceleration} m/s²</span>
-                                                                </div>
-
-                                                                <div className="bg-slate-800 p-2 rounded flex justify-between items-center">
-                                                                    <div className="flex items-center">
-                                                                        <Thermometer size={14} className="mr-1 text-blue-400" />
-                                                                        <span className="text-xs">TEMP</span>
-                                                                    </div>
-                                                                    <span className="font-mono">{stream.temperature}°C</span>
-                                                                </div>
-                                                            </div>
-
-                                                            <button
-                                                                className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded-lg flex items-center justify-center font-medium text-sm transition-colors"
-                                                                onClick={() => handleSelectTelemetry(stream)}
-                                                            >
-                                                                <Upload size={16} className="mr-2" />
-                                                                Push to Overlay
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                            </>
-                                        ) : (
-                                            <div className="flex flex-col items-center justify-center h-48 text-center">
-                                                <X size={32} className="text-slate-500 mb-3" />
-                                                <p className="text-slate-400 mb-2">No live telemetry available for this team</p>
-                                                <p className="text-xs text-slate-500">Use the Event Control panel to manually update flight status</p>
                                             </div>
                                         )}
                                     </div>
+
+                                    {activeTeam.hasLiveTelemetry ? (
+                                        <div className="p-4">
+                                            {isLoading ? (
+                                                <div className="flex justify-center items-center h-64">
+                                                    <div className="text-center">
+                                                        <RefreshCw size={32} className="mx-auto mb-4 animate-spin text-blue-400" />
+                                                        <p className="text-slate-400">Loading telemetry data...</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {telemetryStreams.filter(stream => stream.teamId === activeTeam.id).length > 0 ? (
+                                                        <div>
+                                                            {telemetryStreams.filter(stream => stream.teamId === activeTeam.id).map(stream => (
+                                                                <div key={stream.id} className="bg-slate-700 p-4 rounded-lg border border-slate-600">
+                                                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                            <div className="text-xs text-slate-400 mb-1">Altitude</div>
+                                                                            <div className="flex items-center">
+                                                                                <ArrowUp size={18} className="mr-2 text-blue-400" />
+                                                                                <div className="text-lg">{stream.altitude.toFixed(1)} m</div>
+                                                                            </div>
+                                                                            {stream.maxAltitude && (
+                                                                                <div className="text-xs text-slate-400 mt-1">
+                                                                                    Max: {stream.maxAltitude.toFixed(1)} m
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                            <div className="text-xs text-slate-400 mb-1">Velocity</div>
+                                                                            <div className="flex items-center">
+                                                                                <Wind size={18} className="mr-2 text-blue-400" />
+                                                                                <div className="text-xl">{stream.velocity.toFixed(1)} m/s</div>
+                                                                            </div>
+                                                                            <div className="text-xs text-slate-400 mt-1">
+                                                                                Max: {stream.maxVelocity ? stream.maxVelocity.toFixed(1) : "N/A"} m/s
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="grid grid-cols-3 gap-4">
+                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                            <div className="text-xs text-slate-400 mb-1">Acceleration</div>
+                                                                            <div className="flex items-center">
+                                                                                <div>{stream.acceleration.toFixed(2)} m/s²</div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                            <div className="text-xs text-slate-400 mb-1">Temperature</div>
+                                                                            <div className="flex items-center">
+                                                                                <div>{stream.temperature.toFixed(1)} °C</div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                            <div className="text-xs text-slate-400 mb-1">Pressure</div>
+                                                                            <div className="flex items-center">
+                                                                                <div>{stream.pressure.toFixed(2)} hPa</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    <div className="mt-4 flex justify-between items-center">
+                                                                        <div className="flex items-center">
+                                                                            <div className={`px-2 py-1 rounded text-xs font-semibold 
+                                                                                ${stream.status === "LAUNCHING" ? "bg-yellow-900 bg-opacity-50 text-yellow-400" :
+                                                                                    stream.status === "ASCENDING" ? "bg-blue-900 bg-opacity-50 text-blue-400" :
+                                                                                        stream.status === "APOGEE" ? "bg-purple-900 bg-opacity-50 text-purple-400" :
+                                                                                            stream.status === "DESCENDING" ? "bg-green-900 bg-opacity-50 text-green-400" :
+                                                                                                stream.status === "LANDED" ? "bg-gray-900 bg-opacity-50 text-gray-400" :
+                                                                                                    "bg-slate-900 bg-opacity-50 text-slate-400"}`}
+                                                                            >
+                                                                                {stream.status}
+                                                                            </div>
+                                                                        </div>
+
+                                                                        <div className="text-xs text-slate-400">
+                                                                            Last updated: {new Date(stream.timestamp).toLocaleTimeString()}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex justify-center items-center h-64">
+                                                            <div className="text-center">
+                                                                <AlertTriangle size={32} className="mx-auto mb-4 text-yellow-400" />
+                                                                <p className="text-slate-400">No telemetry data available yet</p>
+                                                                <button
+                                                                    className="mt-4 px-4 py-2 bg-blue-900 text-blue-200 rounded text-sm border border-blue-800 hover:bg-blue-800"
+                                                                    onClick={refreshTelemetry}
+                                                                >
+                                                                    <RefreshCw size={14} className="mr-2 inline" />
+                                                                    Refresh
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 flex justify-center items-center h-64">
+                                            <div className="text-center">
+                                                <AlertTriangle size={32} className="mx-auto mb-4 text-yellow-400" />
+                                                <p className="text-slate-300">No telemetry available for this team</p>
+                                                <p className="text-sm text-slate-400 mt-2">Team has not connected a telemetry source</p>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ) : (
-                            <div className="bg-slate-800 rounded-lg overflow-hidden border border-slate-700 h-64 flex items-center justify-center">
+                            <div className="flex justify-center items-center h-[600px] bg-slate-800 rounded-lg border border-slate-700">
                                 <div className="text-center">
-                                    <Rocket size={48} className="mx-auto mb-4 text-slate-600" />
-                                    <h2 className="text-xl text-slate-400">Select a team to begin</h2>
-                                    <p className="text-sm text-slate-500 mt-2">Team details and controls will appear here</p>
+                                    <Rocket size={48} className="mx-auto mb-4 text-blue-400" />
+                                    <h2 className="text-xl font-bold text-slate-300">Select a Team</h2>
+                                    <p className="text-slate-400 mt-2">Choose a team from the sidebar to view details and manage their flight data</p>
                                 </div>
                             </div>
                         )}

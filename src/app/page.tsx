@@ -22,26 +22,304 @@ import { useSocket } from '~/providers/SocketProvider';
 import { AnimatePresence, motion } from "motion/react"
 import Image from 'next/image';
 
+interface TelemetryStream {
+  id: number;
+  teamId: number;
+  timestamp: string;
+  altitude: number;
+  altitudePlot: altitudePlotPoint[];
+  velocity: number;
+  acceleration: number;
+  temperature: number;
+  maxAltitude: number | null;
+  maxVelocity: number | null;
+  pressure: number;
+  status: string;
+}
+
+interface WeatherApiResponse {
+  "@context": [
+    string,
+    {
+      "@version": string;
+      "wx": string;
+      "s": string;
+      "geo": string;
+      "unit": string;
+      "@vocab": string;
+      "geometry": {
+        "@id": string;
+        "@type": string;
+      };
+      "city": string;
+      "state": string;
+      "distance": {
+        "@id": string;
+        "@type": string;
+      };
+      "bearing": {
+        "@type": string;
+      };
+      "value": {
+        "@id": string;
+      };
+      "unitCode": {
+        "@id": string;
+        "@type": string;
+      };
+      "forecastOffice": {
+        "@type": string;
+      };
+      "forecastGridData": {
+        "@type": string;
+      };
+      "publicZone": {
+        "@type": string;
+      };
+      "county": {
+        "@type": string;
+      };
+    }
+  ];
+  id: string;
+  type: string;
+  geometry: {
+    type: string;
+    coordinates: number[];
+  };
+  properties: {
+    "@id": string;
+    "@type": string;
+    cwa: string;
+    forecastOffice: string;
+    gridId: string;
+    gridX: number;
+    gridY: number;
+    forecast: string;
+    forecastHourly: string;
+    forecastGridData: string;
+    observationStations: string;
+    relativeLocation: {
+      type: string;
+      geometry: {
+        type: string;
+        coordinates: number[];
+      };
+      properties: {
+        city: string;
+        state: string;
+        distance: {
+          unitCode: string;
+          value: number;
+        };
+        bearing: {
+          unitCode: string;
+          value: number;
+        };
+      };
+    };
+    forecastZone: string;
+    county: string;
+    fireWeatherZone: string;
+    timeZone: string;
+    radarStation: string;
+  };
+}
+
+type GeoJsonContext = Array<string | {
+  "@version": string;
+  "wx": string;
+  "geo": string;
+  "unit": string;
+  "@vocab": string;
+}>;
+
+type Coordinates = number[][];
+
+type Geometry = {
+  type: string;
+  coordinates: Coordinates[];
+};
+
+type Elevation = {
+  unitCode: string;
+  value: number;
+};
+
+type ProbabilityOfPrecipitation = {
+  unitCode: string;
+  value: number | null;
+};
+
+type WeatherPeriod = {
+  number: number;
+  name: string;
+  startTime: string;
+  endTime: string;
+  isDaytime: boolean;
+  temperature: number;
+  temperatureUnit: string;
+  temperatureTrend: string;
+  probabilityOfPrecipitation: ProbabilityOfPrecipitation;
+  windSpeed: string;
+  windDirection: string;
+  icon: string;
+  shortForecast: string;
+  detailedForecast: string;
+};
+
+type Properties = {
+  units: string;
+  forecastGenerator: string;
+  generatedAt: string;
+  updateTime: string;
+  validTimes: string;
+  elevation: Elevation;
+  periods: WeatherPeriod[];
+};
+
+type WeatherForecast = {
+  "@context": GeoJsonContext;
+  type: string;
+  geometry: Geometry;
+  properties: Properties;
+};
+
+interface altitudePlotPoint {
+  altitude: number;
+  time: string;
+}
+
 const LoneStarCupOverlay = () => {
   const [showDetailed, setShowDetailed] = useState<boolean>(false);
   const [status, setStatus] = useState<"general" | "flight">('flight');
   const [rocketName, setRocketName] = useState<string>("texas titan mk2");
   const [teamName, setTeamName] = useState<string>("houston rocketeers");
+  const [weather, setWeather] = useState({
+    temperature: 'N/A',
+    wind: 'N/A',
+    sky: 'N/A'
+  });
+  const [currentTime, setCurrentTime] = useState('N/A');
   const socket = useSocket();
   const [events, setEvents] = useState([
     { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-    { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+0:03" },
+    { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
     { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
     { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
     { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
     { id: "mainChuteDeploy", text: "MAIN CHUTE DEPLOY", status: "pending", time: "T+????" },
     { id: "landing", text: "LANDING", status: "pending", time: "T+????" },
   ]);
+  const [telemtryData, setTelemetryData] = useState<TelemetryStream>({
+    id: 0,
+    teamId: 0,
+    timestamp: "N/A",
+    altitude: 0,
+    altitudePlot: [],
+    velocity: 0,
+    acceleration: 0,
+    temperature: 0,
+    maxAltitude: 0,
+    maxVelocity: 0,
+    pressure: 0,
+    status: "",
+  });
+  const [altitudeData, setAltitudeData] = useState<altitudePlotPoint[]>([]);
+
+  // Coordinates for Seymour, TX
+  const lat = 33.5945;
+  const lon = -99.2603;
+
+  const fetchWeatherData = async () => {
+    try {
+      const gridResponse = await fetch(`https://api.weather.gov/points/${lat},${lon}`);
+      const gridData = await gridResponse.json() as WeatherApiResponse;
+
+      if (!gridResponse.ok) {
+        console.error('Error fetching grid data:', gridData);
+        return;
+      }
+
+      const forecastUrl = gridData.properties.forecast;
+
+      const forecastResponse = await fetch(forecastUrl);
+      const forecastData = await forecastResponse.json() as WeatherForecast;
+
+      if (!forecastResponse.ok) {
+        console.error('Error fetching forecast data:', forecastData);
+        return;
+      }
+
+      const currentPeriod = forecastData.properties.periods[0];
+
+      const tempF = currentPeriod!.temperature;
+
+      const windSpeed = parseInt(currentPeriod!.windSpeed);
+
+      let skyCoverage = '15%'; // Default
+      const forecast = currentPeriod!.shortForecast.toLowerCase();
+
+      if (forecast.includes('clear') || forecast.includes('sunny')) {
+        skyCoverage = '0%';
+      } else if (forecast.includes('partly')) {
+        skyCoverage = '30%';
+      } else if (forecast.includes('mostly cloudy')) {
+        skyCoverage = '70%';
+      } else if (forecast.includes('cloudy')) {
+        skyCoverage = '100%';
+      } else if (forecast.includes('overcast')) {
+        skyCoverage = '100%';
+      }
+
+      setWeather({
+        temperature: `${tempF}°F`,
+        wind: windSpeed + ' mph',
+        sky: skyCoverage
+      });
+
+    } catch (error) {
+      console.error('Error fetching weather data:', error);
+    }
+  };
+
+  const updateLocalTime = () => {
+    try {
+      const options = {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+        timeZone: 'America/Chicago' // Central Time for Texas
+      } as const;
+
+      const timeString = new Date().toLocaleTimeString('en-US', options);
+      setCurrentTime(`${timeString} CST`);
+    } catch (error) {
+      console.error('Error updating local time:', error);
+    }
+  };
+
+  useEffect(() => {
+    // Fetch weather data when component mounts
+    fetchWeatherData().catch(console.error);
+
+    // Set up interval to update weather every 15 minutes
+    const weatherInterval = setInterval(() => { void fetchWeatherData(); }, 15 * 60 * 1000);
+
+    // Update local time immediately and then every minute
+    updateLocalTime();
+    const timeInterval = setInterval(updateLocalTime, 60 * 1000);
+
+    return () => {
+      clearInterval(weatherInterval);
+      clearInterval(timeInterval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!socket) return;
     console.log("Socket connected");
-
+    
     socket.on("command", (command: string) => {
       const mainCommand = command.split("-")[0];
 
@@ -57,6 +335,7 @@ const LoneStarCupOverlay = () => {
           break;
 
         case "event":
+          const time = command.split("-")[3];
           const eventStatus = command.split("-")[2];
           const eventId = command.split("-")[1];
 
@@ -64,6 +343,9 @@ const LoneStarCupOverlay = () => {
           if (eventIndex >= 0 && status) {
             const newEvents = [...events];
             newEvents[eventIndex]!.status = eventStatus as "complete" | "inProgress" | "pending";
+            if (time) {
+              newEvents[eventIndex]!.time = time;
+            }
             setEvents(newEvents);
           }
           break;
@@ -71,7 +353,6 @@ const LoneStarCupOverlay = () => {
         case "info":
           const infoType = command.split("-")[1];
           const infoValue = command.split("-")[2];
-          console.log(infoType, infoValue);
           if (!infoValue) return;
 
           switch (infoType) {
@@ -87,56 +368,37 @@ const LoneStarCupOverlay = () => {
       }
     });
 
+    // Handle incoming telemetry updates
+    socket.on('current-team-telemetry-update', async (data: TelemetryStream) => {
+      setAltitudeData(data.altitudePlot);
+
+      setTelemetryData({
+        id: data.id,
+        teamId: data.teamId,
+        altitude: Math.round(data.altitude),
+        altitudePlot: data.altitudePlot,
+        velocity: Math.round(data.velocity),
+        acceleration: Math.round(data.acceleration),
+        temperature: Math.round(data.temperature),
+        maxAltitude: data.maxAltitude ? Math.round(data.maxAltitude) : null,
+        maxVelocity: data.maxVelocity ? Math.round(data.maxVelocity) : null,
+        pressure: Math.round(data.pressure),
+        timestamp: new Date(data.timestamp).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }),
+        status: data.status
+      })
+    });
+
     return () => {
       socket.off("commands");
     };
-  }, [socket])
+  }, [events, socket, status])
 
   const location = "seymour launch site, tx";
-
-  const data = [
-    {
-      name: 'Page A',
-      uv: 4000,
-      pv: 2400,
-      amt: 2400,
-    },
-    {
-      name: 'Page B',
-      uv: 3000,
-      pv: 1398,
-      amt: 2210,
-    },
-    {
-      name: 'Page C',
-      uv: 2000,
-      pv: 9800,
-      amt: 2290,
-    },
-    {
-      name: 'Page D',
-      pv: 3908,
-      amt: 2000,
-    },
-    {
-      name: 'Page E',
-      uv: 1890,
-      pv: 4800,
-      amt: 2181,
-    },
-    {
-      name: 'Page F',
-      uv: 2390,
-      pv: 3800,
-      amt: 2500,
-    },
-    {
-      name: 'Page G',
-      uv: 3490,
-      pv: 4300,
-      amt: 2100,
-    },
-  ];
 
   return (
     <div className="fixed inset-0 text-white font-sans" style={{
@@ -150,7 +412,7 @@ const LoneStarCupOverlay = () => {
         borderBottom: '1px solid rgba(59, 130, 246, 0.2)'
       }}>
         <div className="flex items-center">
-          <Image src="/LoneStarCupLogo.png" width={24} height={24} alt="Lone Star Cup" className='mr-2'/>
+          <Image src="/LoneStarCupLogo.png" width={24} height={24} alt="Lone Star Cup" className='mr-2' />
           <span className="text-lg font-bold tracking-wider">LONE STAR CUP</span>
           <div className="ml-4 px-3 py-1 bg-blue-900 bg-opacity-40 rounded text-xs font-semibold">
             DAY 1
@@ -161,31 +423,31 @@ const LoneStarCupOverlay = () => {
           <div className="flex items-center">
             <Thermometer size={14} className="mr-1 text-blue-400" />
             <span className="text-xs text-slate-400 mr-1">TEMP:</span>
-            <span className="text-sm font-mono">32°C</span>
+            <span className="text-sm font-mono">{weather.temperature}</span>
           </div>
 
           <div className="flex items-center">
             <Wind size={14} className="mr-1 text-blue-400" />
             <span className="text-xs text-slate-400 mr-1">WIND:</span>
-            <span className="text-sm font-mono">8 km/h</span>
+            <span className="text-sm font-mono">{weather.wind}</span>
           </div>
 
           <div className="flex items-center">
             <Cloud size={14} className="mr-1 text-blue-400" />
             <span className="text-xs text-slate-400 mr-1">CLOUD:</span>
-            <span className="text-sm font-mono">15%</span>
+            <span className="text-sm font-mono">{weather.sky}</span>
           </div>
 
           <div className="flex items-center">
             <Clock size={14} className="mr-1 text-blue-400" />
-            <span className="text-sm font-mono">13:42 CST</span>
+            <span className="text-sm font-mono">{currentTime}</span>
           </div>
         </div>
       </div>
 
       <AnimatePresence>
         {/* Phase indicator */}
-        {status == 'flight' && (
+        {status == 'flight' && events.findIndex(event => event.status === 'inProgress') != -1 && (
           <motion.div
             key="phase"
             initial={{ opacity: 0 }}
@@ -196,7 +458,7 @@ const LoneStarCupOverlay = () => {
               <div className="text-xs text-blue-400 font-bold tracking-wider">CURRENT PHASE</div>
               <div className="text-xl font-bold flex items-center justify-center mt-1">
                 <Rocket size={18} className="mr-2 text-blue-400 animate-pulse" />
-                ASCENT
+                {events.find(event => event.status === 'inProgress')?.text}
               </div>
             </div>
           </motion.div>
@@ -225,7 +487,7 @@ const LoneStarCupOverlay = () => {
                 <div className="h-full w-full bg-slate-800 rounded relative overflow-hidden">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart
-                      data={data}
+                      data={altitudeData}
                     >
                       <CartesianGrid strokeDasharray="3 3" opacity={0.45} />
                       <defs>
@@ -234,7 +496,7 @@ const LoneStarCupOverlay = () => {
                           <stop offset="95%" stopColor="#60a5fa" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <Area connectNulls type="monotone" dataKey="uv" stroke="#8884d8" fillOpacity={1} fill="url(#colorUv)" />
+                      <Area connectNulls type="monotone" dataKey="altitude" stroke="#8884d8" fillOpacity={1} fill="url(#colorUv)" />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -249,7 +511,7 @@ const LoneStarCupOverlay = () => {
                       ALTITUDE
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      1,458<span className="text-xs text-slate-400 ml-1">m</span>
+                      {telemtryData.altitude}<span className="text-xs text-slate-400 ml-1">m</span>
                     </div>
                   </div>
 
@@ -259,7 +521,7 @@ const LoneStarCupOverlay = () => {
                       VELOCITY
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      242<span className="text-xs text-slate-400 ml-1">m/s</span>
+                      {telemtryData.velocity}<span className="text-xs text-slate-400 ml-1">m/s</span>
                     </div>
                   </div>
 
@@ -269,7 +531,7 @@ const LoneStarCupOverlay = () => {
                       ACCELERATION
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      21.4<span className="text-xs text-slate-400 ml-1">m/s²</span>
+                      {telemtryData.acceleration}<span className="text-xs text-slate-400 ml-1">m/s²</span>
                     </div>
                   </div>
 
@@ -279,7 +541,7 @@ const LoneStarCupOverlay = () => {
                       TEMPERATURE
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      42<span className="text-xs text-slate-400 ml-1">°C</span>
+                      {telemtryData.temperature}<span className="text-xs text-slate-400 ml-1">°C</span>
                     </div>
                   </div>
                 </div>
@@ -293,7 +555,7 @@ const LoneStarCupOverlay = () => {
                       MAX ALTITUDE
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      N/A<span className="text-xs text-slate-400 ml-1">m</span>
+                      {telemtryData.maxAltitude}<span className="text-xs text-slate-400 ml-1">m</span>
                     </div>
                   </div>
 
@@ -302,7 +564,7 @@ const LoneStarCupOverlay = () => {
                       MAX VELOCITY
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      324<span className="text-xs text-slate-400 ml-1">m/s</span>
+                      {telemtryData.maxVelocity}<span className="text-xs text-slate-400 ml-1">m/s</span>
                     </div>
                   </div>
 
@@ -311,17 +573,16 @@ const LoneStarCupOverlay = () => {
                       PRESSURE
                     </div>
                     <div className="text-lg font-mono font-bold mt-1">
-                      84.3<span className="text-xs text-slate-400 ml-1">kPa</span>
+                      {telemtryData.pressure}<span className="text-xs text-slate-400 ml-1">kPa</span>
                     </div>
                   </div>
 
                   <div className="p-2 bg-slate-800 rounded">
                     <div className="text-xs text-blue-400 font-bold">
-                      STABILITY
+                      LAST UPDATED
                     </div>
-                    <div className="text-lg font-mono font-bold mt-1 flex items-center">
-                      <span className="text-green-400 mr-2">OK</span>
-                      <Check size={14} className="text-green-400" />
+                    <div className="text-lg font-mono font-bold mt-1">
+                      {telemtryData.timestamp}
                     </div>
                   </div>
                 </div>
@@ -362,33 +623,6 @@ const LoneStarCupOverlay = () => {
             )}
           </motion.div>
         )}
-
-        {/* Right panel - Events */}
-        {/*status == 'flight' &&
-        <div className="absolute right-6 top-16 bottom-16 w-fit">
-          <div className="bg-slate-900 bg-opacity-90 rounded-lg overflow-hidden border border-slate-800" style={{
-            boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
-          }}>
-            <div className="px-4 py-3 border-b border-slate-800 flex items-center">
-              <Timer size={16} className="mr-2 text-blue-400" />
-              <span className="font-bold text-sm tracking-wider">FLIGHT EVENTS</span>
-            </div>
-
-            <div className="max-fit">
-              {events.map((event, index) => (
-                <div key={index} className="py-2 px-3 flex items-center border-b border-slate-800 last:border-b-0">
-                  <div className="text-xs font-mono text-slate-400 w-16">{event.time}</div>
-                  <div className={`w-2 h-2 mx-2 rounded-full flex-shrink-0 ${event.status === 'complete' ? 'bg-green-500' :
-                    event.status === 'inProgress' ? 'bg-blue-500 animate-pulse' :
-                      'bg-slate-700'
-                    }`}></div>
-                  <div className="text-sm tracking-wide">{event.text}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      */}
 
         {/* Bottom events timeline */}
         {status == 'flight' && (
