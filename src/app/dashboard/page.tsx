@@ -21,7 +21,8 @@ import {
     Settings,
     Radio,
     RefreshCw,
-    AlertTriangle
+    AlertTriangle,
+    Database
 } from 'lucide-react';
 import { useSocket } from '~/providers/SocketProvider';
 import Image from 'next/image';
@@ -88,7 +89,7 @@ const AdminDashboard = () => {
     const [lastUpdated, setLastUpdated] = useState<Record<number, string>>({});
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-
+    const [showLoadModal, setShowLoadModal] = useState(false);
     const [teams, setTeams] = useState<Team[]>([
         {
             id: 1,
@@ -152,7 +153,7 @@ const AdminDashboard = () => {
                 hour: "2-digit",
                 minute: "2-digit",
                 hour12: false,
-                timeZone: 'America/Chicago' // Central Time for Texas
+                timeZone: 'America/Chicago'
             } as const;
 
             const timeString = new Date().toLocaleTimeString('en-US', options);
@@ -166,7 +167,11 @@ const AdminDashboard = () => {
     useEffect(() => {
         updateLocalTime();
         const timeInterval = setInterval(updateLocalTime, 60 * 1000);
-
+        const storedTeams = localStorage.getItem('teams');
+        if (storedTeams) {
+            setShowLoadModal(true);
+        }
+        
         return () => {
             clearInterval(timeInterval);
         }
@@ -185,9 +190,19 @@ const AdminDashboard = () => {
         // Handle connection success
         socket.on('connect', () => {
             console.log("Socket connected:", socket.id);
+            socket.emit('request-connected-clients');
+            socket.emit('command', 'status-general');
+            socket.emit('command', 'details-hide');
             setSocketConnected(true);
             setConnectionId(`LSC-${Math.floor(100000 + Math.random() * 900000)}`);
             setError(null);
+        });
+
+        socket.on('connected-clients', (clients: Client[]) => {
+            console.log("Connected clients:", clients);
+            const teamClients = clients.filter(client => client.role === 'team' && client.teamId);
+
+            setConnectedTeams(teamClients.map(client => client.teamId));
         });
 
         // Handle connection errors
@@ -323,6 +338,8 @@ const AdminDashboard = () => {
         console.log(`Sending command: ${command}`);
         socket.emit("command", command);
 
+        localStorage.setItem('teams', JSON.stringify(teams));
+
         // Simulate command responses for UI feedback
         if (command === "details-show") {
             setShowDetailed(true);
@@ -333,6 +350,14 @@ const AdminDashboard = () => {
         } else if (command === "status-flight") {
             setStatus("flight");
         }
+    };
+
+    const loadFromStorage = () => {
+        const storedTeams = localStorage.getItem('teams');
+        if (storedTeams) {
+            setTeams(JSON.parse(storedTeams) as Team[]);
+        }
+        setShowLoadModal(false);
     };
 
     const handleSelectTeam = (team: Team) => {
@@ -356,9 +381,6 @@ const AdminDashboard = () => {
         // Send team info to overlay
         sendCommand("info-team-" + team.name);
         sendCommand("info-rocket-" + team.rocketName);
-
-        // Switch to flight view
-        sendCommand("status-flight");
     };
 
     const refreshTelemetry = () => {
@@ -547,7 +569,7 @@ const AdminDashboard = () => {
                                 </div>
 
                                 <h3 className="text-xs uppercase text-slate-400 mb-2">Telemetry Display</h3>
-                                <div className="grid grid-cols-2 gap-2">
+                                <div className="grid grid-cols-2 gap-2 mb-4">
                                     <button
                                         className={`py-2 rounded-lg flex items-center justify-center border ${showDetailed ? 'bg-blue-900 bg-opacity-40 border-blue-600 text-blue-200' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
                                         onClick={() => sendCommand('details-show')}
@@ -752,12 +774,12 @@ const AdminDashboard = () => {
                                                                             </div>
                                                                         </div>
 
-                                                                        { stream.motorStats &&
+                                                                        {stream.motorStats &&
                                                                             <div className="bg-slate-700 p-4 rounded-lg border border-slate-600">
                                                                                 <p className="font-bold text-sm tracking-wider uppercase">motor information</p>
                                                                                 <div className="grid grid-cols-2 gap-4 mt-4">
                                                                                     <div>
-                                                                                        <p className="text-xs text-slate-400">Manufacturer</p>
+                                                                                        <p className="text-xs text-slate-400">Commen Name</p>
                                                                                         <p className="text-sm">{stream.motorStats?.commonName ?? "N/A"}</p>
                                                                                     </div>
                                                                                     <div>
@@ -820,6 +842,33 @@ const AdminDashboard = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Load from storage modal */}
+            {showLoadModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg p-6 max-w-md w-full">
+                        <h3 className="text-lg font-bold mb-4">Saved Data Found</h3>
+                        <p className="text-slate-300 mb-6">Previous team data was found in your browser storage. Would you like to load it?</p>
+
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 border border-slate-600"
+                                onClick={() => setShowLoadModal(false)}
+                            >
+                                Ignore
+                            </button>
+                            <button
+                                className="px-4 py-2 bg-blue-700 hover:bg-blue-600 rounded text-white border border-blue-600"
+                                onClick={loadFromStorage}
+                            >
+                                <Database size={16} className="inline mr-2" />
+                                Load Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 };

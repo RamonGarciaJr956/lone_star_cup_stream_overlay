@@ -189,6 +189,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit('client-connected', clientInfo);
   }
 
+  socket.on('request-connected-clients', () => {
+    const clients = Array.from(connectedClients.values());
+    socket.emit('connected-clients', clients);
+  });
+
   // Handle telemetry data
   socket.on('telemetry', (data: Data) => {
     const client = connectedClients.get(socket.id);
