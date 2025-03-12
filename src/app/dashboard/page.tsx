@@ -61,12 +61,17 @@ const AdminDashboard = () => {
         maxVelocity: number | null;
         pressure: number;
         status: string;
+        motorManufacturer: string;
+        motorDesignation: string;
+        motorStats: { commonName: string, totImpulseNs: number, maxThrustN: number, burnTimeS: number } | null;
     }
 
     type Client = {
         role: string;
         teamId: number;
         name?: string;
+        motorManufacturer?: string | null;
+        motorDesignation?: string | null;
     }
 
     type telemetryHistory = TelemetryStream[];
@@ -206,6 +211,7 @@ const AdminDashboard = () => {
                     if (team.id === client.teamId) {
                         return { ...team, hasLiveTelemetry: true };
                     }
+
                     return team;
                 }));
             }
@@ -251,7 +257,7 @@ const AdminDashboard = () => {
                 return team;
             }));
 
-            if(activeTeam && activeTeam.id === data.teamId) {
+            if (activeTeam && activeTeam.id === data.teamId) {
                 socket.emit('current-team-telemetry-update', data);
             }
         });
@@ -332,7 +338,7 @@ const AdminDashboard = () => {
     const handleSelectTeam = (team: Team) => {
         setActiveTeam(team);
 
-        if(!team.hasLiveTelemetry){
+        if (!team.hasLiveTelemetry) {
             sendCommand('details-hide');
             setShowDetailed(false);
         }
@@ -675,75 +681,103 @@ const AdminDashboard = () => {
                                             ) : (
                                                 <>
                                                     {telemetryStreams.filter(stream => stream.teamId === activeTeam.id).length > 0 ? (
-                                                        <div>
-                                                            {telemetryStreams.filter(stream => stream.teamId === activeTeam.id).map(stream => (
-                                                                <div key={stream.id} className="bg-slate-700 p-4 rounded-lg border border-slate-600">
-                                                                    <div className="grid grid-cols-2 gap-4 mb-4">
-                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                                                                            <div className="text-xs text-slate-400 mb-1">Altitude</div>
-                                                                            <div className="flex items-center">
-                                                                                <ArrowUp size={18} className="mr-2 text-blue-400" />
-                                                                                <div className="text-lg">{stream.altitude.toFixed(1)} m</div>
-                                                                            </div>
-                                                                            {stream.maxAltitude && (
-                                                                                <div className="text-xs text-slate-400 mt-1">
-                                                                                    Max: {stream.maxAltitude.toFixed(1)} m
+                                                        <div className='flex flex-col gap-4'>
+                                                            <div>
+                                                                {telemetryStreams.filter(stream => stream.teamId === activeTeam.id).map((stream: TelemetryStream) => (
+                                                                    <div className='flex flex-col gap-4' key={stream.id}>
+                                                                        <div key={stream.id} className="bg-slate-700 p-4 rounded-lg border border-slate-600">
+                                                                            <div className="grid grid-cols-2 gap-4 mb-4">
+                                                                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                                    <div className="text-xs text-slate-400 mb-1">Altitude</div>
+                                                                                    <div className="flex items-center">
+                                                                                        <ArrowUp size={18} className="mr-2 text-blue-400" />
+                                                                                        <div className="text-lg">{stream.altitude.toFixed(1)} m</div>
+                                                                                    </div>
+                                                                                    {stream.maxAltitude && (
+                                                                                        <div className="text-xs text-slate-400 mt-1">
+                                                                                            Max: {stream.maxAltitude.toFixed(1)} m
+                                                                                        </div>
+                                                                                    )}
                                                                                 </div>
-                                                                            )}
-                                                                        </div>
-                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                                                                            <div className="text-xs text-slate-400 mb-1">Velocity</div>
-                                                                            <div className="flex items-center">
-                                                                                <Wind size={18} className="mr-2 text-blue-400" />
-                                                                                <div className="text-xl">{stream.velocity.toFixed(1)} m/s</div>
+                                                                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                                    <div className="text-xs text-slate-400 mb-1">Velocity</div>
+                                                                                    <div className="flex items-center">
+                                                                                        <Wind size={18} className="mr-2 text-blue-400" />
+                                                                                        <div className="text-xl">{stream.velocity.toFixed(1)} m/s</div>
+                                                                                    </div>
+                                                                                    <div className="text-xs text-slate-400 mt-1">
+                                                                                        Max: {stream.maxVelocity ? stream.maxVelocity.toFixed(1) : "N/A"} m/s
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
-                                                                            <div className="text-xs text-slate-400 mt-1">
-                                                                                Max: {stream.maxVelocity ? stream.maxVelocity.toFixed(1) : "N/A"} m/s
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
 
-                                                                    <div className="grid grid-cols-3 gap-4">
-                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                                                                            <div className="text-xs text-slate-400 mb-1">Acceleration</div>
-                                                                            <div className="flex items-center">
-                                                                                <div>{stream.acceleration.toFixed(2)} m/s²</div>
+                                                                            <div className="grid grid-cols-3 gap-4">
+                                                                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                                    <div className="text-xs text-slate-400 mb-1">Acceleration</div>
+                                                                                    <div className="flex items-center">
+                                                                                        <div>{stream.acceleration.toFixed(2)} m/s²</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                                    <div className="text-xs text-slate-400 mb-1">Temperature</div>
+                                                                                    <div className="flex items-center">
+                                                                                        <div>{stream.temperature.toFixed(1)} °C</div>
+                                                                                    </div>
+                                                                                </div>
+                                                                                <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                                                                                    <div className="text-xs text-slate-400 mb-1">Pressure</div>
+                                                                                    <div className="flex items-center">
+                                                                                        <div>{stream.pressure.toFixed(2)} hPa</div>
+                                                                                    </div>
+                                                                                </div>
                                                                             </div>
-                                                                        </div>
-                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                                                                            <div className="text-xs text-slate-400 mb-1">Temperature</div>
-                                                                            <div className="flex items-center">
-                                                                                <div>{stream.temperature.toFixed(1)} °C</div>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700">
-                                                                            <div className="text-xs text-slate-400 mb-1">Pressure</div>
-                                                                            <div className="flex items-center">
-                                                                                <div>{stream.pressure.toFixed(2)} hPa</div>
-                                                                            </div>
-                                                                        </div>
-                                                                    </div>
 
-                                                                    <div className="mt-4 flex justify-between items-center">
-                                                                        <div className="flex items-center">
-                                                                            <div className={`px-2 py-1 rounded text-xs font-semibold 
+                                                                            <div className="mt-4 flex justify-between items-center">
+                                                                                <div className="flex items-center">
+                                                                                    <div className={`px-2 py-1 rounded text-xs font-semibold 
                                                                                 ${stream.status === "LAUNCHING" ? "bg-yellow-900 bg-opacity-50 text-yellow-400" :
-                                                                                    stream.status === "ASCENDING" ? "bg-blue-900 bg-opacity-50 text-blue-400" :
-                                                                                        stream.status === "APOGEE" ? "bg-purple-900 bg-opacity-50 text-purple-400" :
-                                                                                            stream.status === "DESCENDING" ? "bg-green-900 bg-opacity-50 text-green-400" :
-                                                                                                stream.status === "LANDED" ? "bg-gray-900 bg-opacity-50 text-gray-400" :
-                                                                                                    "bg-slate-900 bg-opacity-50 text-slate-400"}`}
-                                                                            >
-                                                                                {stream.status}
+                                                                                            stream.status === "ASCENDING" ? "bg-blue-900 bg-opacity-50 text-blue-400" :
+                                                                                                stream.status === "APOGEE" ? "bg-purple-900 bg-opacity-50 text-purple-400" :
+                                                                                                    stream.status === "DESCENDING" ? "bg-green-900 bg-opacity-50 text-green-400" :
+                                                                                                        stream.status === "LANDED" ? "bg-gray-900 bg-opacity-50 text-gray-400" :
+                                                                                                            "bg-slate-900 bg-opacity-50 text-slate-400"}`}
+                                                                                    >
+                                                                                        {stream.status}
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                <div className="text-xs text-slate-400">
+                                                                                    Last updated: {new Date(stream.timestamp).toLocaleTimeString()}
+                                                                                </div>
                                                                             </div>
                                                                         </div>
 
-                                                                        <div className="text-xs text-slate-400">
-                                                                            Last updated: {new Date(stream.timestamp).toLocaleTimeString()}
-                                                                        </div>
+                                                                        { stream.motorStats &&
+                                                                            <div className="bg-slate-700 p-4 rounded-lg border border-slate-600">
+                                                                                <p className="font-bold text-sm tracking-wider uppercase">motor information</p>
+                                                                                <div className="grid grid-cols-2 gap-4 mt-4">
+                                                                                    <div>
+                                                                                        <p className="text-xs text-slate-400">Manufacturer</p>
+                                                                                        <p className="text-sm">{stream.motorStats?.commonName ?? "N/A"}</p>
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <p className="text-xs text-slate-400">Designation</p>
+                                                                                        <p className="text-sm">{stream.motorDesignation ?? "N/A"}</p>
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <p className="text-xs text-slate-400">Total Impulse</p>
+                                                                                        <p className="text-sm">{stream.motorStats?.totImpulseNs ?? "N/A"} Ns</p>
+                                                                                    </div>
+                                                                                    <div>
+                                                                                        <p className="text-xs text-slate-400">Max Thrust</p>
+                                                                                        <p className="text-sm">{stream.motorStats?.maxThrustN ?? "N/A"} N</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                            </div>
+                                                                        }
                                                                     </div>
-                                                                </div>
-                                                            ))}
+                                                                ))}
+                                                            </div>
                                                         </div>
                                                     ) : (
                                                         <div className="flex justify-center items-center h-64">

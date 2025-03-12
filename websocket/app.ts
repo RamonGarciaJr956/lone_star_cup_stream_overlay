@@ -1,4 +1,5 @@
 import { Server } from "socket.io";
+import { type Socket } from 'socket.io';
 
 const PORT = 3005;
 const io = new Server({
@@ -12,17 +13,20 @@ interface ClientData {
   role: string;
   teamId: number | null;
   name?: string | null;
+  motorManufacturer?: string | null;
+  motorDesignation?: string | null;
+  motorStats?: { commonName: string, totImpulseNs: number, maxThrustN: number, burnTimeS: number } | null;
 }
 
-// Track connected clients
 const connectedClients = new Map<string, ClientData>();
-// Store latest telemetry by team
 const teamTelemetry = new Map<number, TelemetryData[]>();
 
 type Data = {
   role: string;
   teamId: number;
   name: string;
+  motorManufacturer: string;
+  motorDesignation: string;
   id: number;
   timestamp?: string;
   altitude?: number;
@@ -53,6 +57,71 @@ type TelemetryData = {
   maxVelocity: number;
   pressure: number;
   status: string;
+  motorManufacturer: string;
+  motorDesignation: string;
+  motorStats: { commonName: string, totImpulseNs: number, maxThrustN: number, burnTimeS: number } | null;
+}
+
+interface CriterionItem {
+  name: string;
+  value: string;
+  matches: number;
+}
+
+interface MotorData {
+  motorId: string;
+  manufacturer: string;
+  manufacturerAbbrev: string;
+  designation: string;
+  commonName: string;
+  impulseClass: string;
+  diameter: number;
+  length: number;
+  type: string;
+  certOrg: string;
+  avgThrustN: number;
+  maxThrustN: number;
+  totImpulseNs: number;
+  burnTimeS: number;
+  dataFiles: number;
+  totalWeightG: number;
+  propWeightG: number;
+  caseInfo: string;
+  propInfo: string;
+  sparky: boolean;
+  updatedOn: string;
+  availability: string;
+}
+
+interface ThrustCurveApiResponse {
+  criteria: CriterionItem[];
+  matches: number;
+  results: MotorData[];
+}
+
+async function fetchMotorData(motorManufacturer: string, motorDesignation: string): Promise<ThrustCurveApiResponse> {
+  try {
+    const response = await fetch("https://www.thrustcurve.org/api/v1/search.json", {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        manufacturer: motorManufacturer,
+        designation: motorDesignation
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    const data: ThrustCurveApiResponse = await response.json() as ThrustCurveApiResponse;
+    return data;
+  } catch (error) {
+    console.error("Error fetching motor data:", error);
+    throw error;
+  }
 }
 
 io.on('connection', (socket) => {
@@ -67,30 +136,58 @@ io.on('connection', (socket) => {
   // Identify client type
   socket.on('register', (data: Data) => {
     if (data?.role) {
-      console.log(`Client ${socket.id} registered as ${data.role}`);
-      connectedClients.set(socket.id, {
+      const clientInfo = {
         role: data.role,
         teamId: data.teamId || null,
-        name: data.name || null
-      });
+        name: data.name || null,
+        motorManufacturer: data.motorManufacturer || null,
+        motorDesignation: data.motorDesignation || null
+      } as ClientData;
 
-      // If this is a team's telemetry source, send them the latest data we have
-      if (data.role === 'team' && data.teamId) {
-        const latestData = teamTelemetry.get(data.teamId);
-        if (latestData) {
-          socket.emit('telemetry-history', latestData);
-        }
+      // Check if both motor manufacturer and designation are provided
+      if (data.motorManufacturer && data.motorDesignation) {
+        // Fetch motor data only if both values are provided
+        fetchMotorData(data.motorManufacturer, data.motorDesignation)
+          .then((response) => {
+            const motorStats = response.results[0]!;
+            clientInfo.motorStats = {
+              commonName: motorStats.commonName,
+              totImpulseNs: motorStats.totImpulseNs,
+              maxThrustN: motorStats.maxThrustN,
+              burnTimeS: motorStats.burnTimeS
+            };
+
+            // Register with motor data
+            completeRegistration(socket, clientInfo, data);
+          })
+          .catch((error) => {
+            console.error("Error fetching motor data:", error);
+            // Register without motor data if fetch fails
+            completeRegistration(socket, clientInfo, data);
+          });
+      } else {
+        // Register immediately without attempting to fetch motor data
+        completeRegistration(socket, clientInfo, data);
       }
-
-      // Broadcast new client connection to admins
-      socket.broadcast.emit('client-connected', {
-        id: socket.id,
-        role: data.role,
-        teamId: data.teamId,
-        name: data.name
-      });
     }
   });
+
+  // Helper function to avoid code duplication
+  function completeRegistration(socket: Socket, clientInfo: ClientData, data: Data) {
+    console.log(`Client ${socket.id} registered as ${data.role}`);
+    connectedClients.set(socket.id, clientInfo);
+
+    // If this is a team's telemetry source, send them the latest data we have
+    if (data.role === 'team' && data.teamId) {
+      const latestData = teamTelemetry.get(data.teamId);
+      if (latestData) {
+        socket.emit('telemetry-history', latestData);
+      }
+    }
+
+    // Broadcast new client connection to admins
+    socket.broadcast.emit('client-connected', clientInfo);
+  }
 
   // Handle telemetry data
   socket.on('telemetry', (data: Data) => {
@@ -123,8 +220,11 @@ io.on('connection', (socket) => {
       maxAltitude: data.maxAltitude ?? null,
       maxVelocity: data.maxVelocity ?? 0,
       pressure: data.pressure ?? 0,
-      status: data.status ?? "N/A"
-    };
+      status: data.status ?? "N/A",
+      motorManufacturer: client.motorManufacturer ?? "N/A",
+      motorDesignation: client.motorDesignation ?? "N/A",
+      motorStats: client.motorStats ?? null
+    } as TelemetryData;
 
     // Store latest telemetry
     let teamData = teamTelemetry.get(standardizedData.teamId) ?? [];

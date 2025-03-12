@@ -35,6 +35,9 @@ interface TelemetryStream {
   maxVelocity: number | null;
   pressure: number;
   status: string;
+  motorManufacturer: string;
+  motorDesignation: string;
+  motorStats: { commonName: string, totImpulseNs: number, maxThrustN: number, burnTimeS: number } | null;
 }
 
 interface WeatherApiResponse {
@@ -224,6 +227,9 @@ const LoneStarCupOverlay = () => {
     maxVelocity: 0,
     pressure: 0,
     status: "",
+    motorManufacturer: "",
+    motorDesignation: "",
+    motorStats: null
   });
   const [altitudeData, setAltitudeData] = useState<altitudePlotPoint[]>([]);
 
@@ -389,7 +395,10 @@ const LoneStarCupOverlay = () => {
           second: '2-digit',
           hour12: false
         }),
-        status: data.status
+        status: data.status,
+        motorManufacturer: data.motorManufacturer,
+        motorDesignation: data.motorDesignation,
+        motorStats: data.motorStats
       })
     });
 
@@ -590,7 +599,7 @@ const LoneStarCupOverlay = () => {
             </div>
 
             {/* Motor data in detailed view */}
-            {showDetailed && status == 'flight' && (
+            {showDetailed && status == 'flight' && telemtryData.motorStats && (
               <div className="mt-4 bg-slate-900 bg-opacity-90 rounded-lg overflow-hidden border border-slate-800" style={{
                 boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
               }}>
@@ -601,21 +610,21 @@ const LoneStarCupOverlay = () => {
 
                 <div className="p-3">
                   <div className="text-center mb-3 font-mono">
-                    <span className="text-base font-bold bg-slate-800 px-3 py-1 rounded-full border border-blue-900">K1750W</span>
+                    <span className="text-base font-bold bg-slate-800 px-3 py-1 rounded-full border border-blue-900">{telemtryData.motorStats?.commonName}</span>
                   </div>
 
                   <div className="flex justify-between text-center">
                     <div className="px-2">
-                      <div className="text-base font-bold font-mono">1750</div>
-                      <div className="text-xs text-blue-400">IMPULSE (N⋅s)</div>
+                      <div className="text-base font-bold font-mono">{telemtryData.motorStats?.totImpulseNs ? Math.round(telemtryData.motorStats.totImpulseNs) : 0}</div>
+                      <div className="text-xs text-blue-400">MAX <br/> IMPULSE (N⋅s)</div>
                     </div>
                     <div className="px-2 border-l border-r border-slate-800">
-                      <div className="text-base font-bold font-mono">75</div>
-                      <div className="text-xs text-blue-400">THRUST (N)</div>
+                      <div className="text-base font-bold font-mono">{telemtryData.motorStats?.maxThrustN ? Math.round(telemtryData.motorStats.maxThrustN) : 0}</div>
+                      <div className="text-xs text-blue-400">MAX <br/> THRUST (N)</div>
                     </div>
                     <div className="px-2">
-                      <div className="text-base font-bold font-mono">3.5</div>
-                      <div className="text-xs text-blue-400">BURN (s)</div>
+                      <div className="text-base font-bold font-mono">{telemtryData.motorStats ? telemtryData.motorStats.burnTimeS : 0}</div>
+                      <div className="text-xs text-blue-400">MAX <br/> BURN (s)</div>
                     </div>
                   </div>
                 </div>

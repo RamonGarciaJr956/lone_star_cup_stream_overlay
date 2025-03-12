@@ -14,9 +14,19 @@ const rl = readline.createInterface({
 // Mock flight phases for more realistic data
 type FlightPhase = "pre-launch" | "boost" | "coast" | "apogee" | "descent" | "landed";
 
+interface ClientData {
+  role: string;
+  teamId: number | null;
+  id?: number;
+  motorManufacturer?: string | null;
+  motorDesignation?: string | null;
+}
+
 class TelemetrySimulator {
   private flightId: number;
-  private teamId: number;
+  public teamId: number;
+  public motorManufacturer?: string;
+  public motorDesignation?: string;
   private startTime: Date;
   private currentTime: Date;
   private flightPhase: FlightPhase;
@@ -31,9 +41,11 @@ class TelemetrySimulator {
   private timeElapsed: number; // seconds
   private intervalId: NodeJS.Timeout | null;
 
-  constructor(teamId: number) {
+  constructor(teamId: number, motorManufacturer?: string, motorDesignation?: string) {
     this.flightId = Math.floor(Math.random() * 100000);
     this.teamId = teamId;
+    this.motorManufacturer = motorManufacturer;
+    this.motorDesignation = motorDesignation;
     this.startTime = new Date();
     this.currentTime = new Date();
     this.flightPhase = "pre-launch";
@@ -50,13 +62,27 @@ class TelemetrySimulator {
   }
 
   register() {
-    socket.emit("register", {
+    // Create base registration data
+    const registrationData: ClientData = {
       role: "team",
       teamId: this.teamId,
       id: this.flightId
-    });
+    };
 
-    console.log(`Registered as Team ${this.teamId}`);
+    // Only add motor information if both manufacturer and designation are provided
+    if (this.motorManufacturer && this.motorDesignation) {
+      registrationData.motorManufacturer = this.motorManufacturer;
+      registrationData.motorDesignation = this.motorDesignation;
+    }
+
+    socket.emit("register", registrationData);
+
+    // Log registration details
+    let registrationMessage = `Registered as Team ${this.teamId}`;
+    if (this.motorManufacturer && this.motorDesignation) {
+      registrationMessage += ` with motor ${this.motorManufacturer} ${this.motorDesignation}`;
+    }
+    console.log(registrationMessage);
 
     // Set up event listeners
     this.setupEventListeners();
@@ -248,20 +274,64 @@ const socket = io(SERVER_URL);
 
 let simulator: TelemetrySimulator;
 
-// Ask for team ID at startup
-rl.question('Enter team ID: ', (teamIdInput) => {
-  const teamId = parseInt(teamIdInput, 10);
-  
-  if (isNaN(teamId) || teamId <= 0) {
-    console.log('Invalid team ID. Using default team ID 1.');
-    simulator = new TelemetrySimulator(1);
-  } else {
-    simulator = new TelemetrySimulator(teamId);
-    console.log(`Team ${teamId} simulator initialized. Connecting to server...`);
-  }
+// Default value
+const DEFAULT_TEAM_ID = 1;
 
-  // Command line interface for manual control
-  console.log("ROCKET TELEMETRY SIMULATOR");
+// Get user input for simulator configuration
+const getSimulatorConfig = () => {
+  rl.question('Enter team ID: ', (teamIdInput) => {
+    const teamId = parseInt(teamIdInput, 10);
+    
+    if (isNaN(teamId) || teamId <= 0) {
+      console.log(`Invalid team ID. Using default team ID ${DEFAULT_TEAM_ID}.`);
+    }
+    
+    rl.question('Enter motor manufacturer (optional, press Enter to skip): ', (manufacturerInput) => {
+      const motorManufacturer = manufacturerInput.trim() || undefined;
+      
+      // If motor manufacturer is provided, ask for designation
+      if (motorManufacturer) {
+        rl.question('Enter motor designation: ', (designationInput) => {
+          const motorDesignation = designationInput.trim() || undefined;
+          
+          // Create simulator with provided values
+          simulator = new TelemetrySimulator(
+            isNaN(teamId) || teamId <= 0 ? DEFAULT_TEAM_ID : teamId,
+            motorManufacturer,
+            motorDesignation
+          );
+          
+          logConfigAndStartInterface();
+        });
+      } else {
+        // Create simulator without motor info
+        simulator = new TelemetrySimulator(
+          isNaN(teamId) || teamId <= 0 ? DEFAULT_TEAM_ID : teamId
+        );
+        
+        logConfigAndStartInterface();
+      }
+    });
+  });
+};
+
+// Log configuration and start command interface
+const logConfigAndStartInterface = () => {
+  console.log(`Simulator initialized for Team ID: ${simulator.teamId}`);
+  if (simulator.motorManufacturer && simulator.motorDesignation) {
+    console.log(`- Motor: ${simulator.motorManufacturer} ${simulator.motorDesignation}`);
+  } else {
+    console.log(`- No motor specified`);
+  }
+  console.log(`Connecting to server...`);
+  
+  // Start command interface
+  startCommandInterface();
+};
+
+// Command line interface for manual control
+const startCommandInterface = () => {
+  console.log("\nROCKET TELEMETRY SIMULATOR");
   console.log("Commands: start, stop, reset, exit");
   
   rl.on('line', (input) => {
@@ -269,7 +339,7 @@ rl.question('Enter team ID: ', (teamIdInput) => {
     
     switch (command) {
       case 'start':
-        simulator.register()
+        simulator.register();
         simulator.startFlightSimulation();
         break;
       case 'stop':
@@ -289,7 +359,10 @@ rl.question('Enter team ID: ', (teamIdInput) => {
         console.log("Unknown command. Available commands: start, stop, reset, exit");
     }
   });
-});
+};
+
+// Start the configuration process
+getSimulatorConfig();
 
 // Handle process termination
 process.on('SIGINT', () => {

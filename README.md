@@ -29,9 +29,13 @@ Immediately after connecting, register your team by emitting a `register` event 
 {
   "role": "team",
   "teamId": YOUR_ASSIGNED_TEAM_ID,
-  "name": "YOUR_TEAM_NAME"  // Optional
+  "name": "YOUR_TEAM_NAME",  // Optional
+  "motorManufacturer": "MANUFACTURER_NAME", // Optional
+  "motorDesignation": "MOTOR_MODEL" // Optional
 }
 ```
+
+**Note:** If you include both `motorManufacturer` and `motorDesignation`, the system will automatically fetch and display performance statistics for that motor during the competition. This is optional but recommended for enhanced telemetry display.
 
 ### 3. Send Telemetry Data
 
@@ -79,6 +83,23 @@ When reconnecting, listen for the `telemetry-history` event to receive previousl
 | pressure | number | Atmospheric pressure in kPa | Use null |
 | status | string | Flight phase (e.g., "pre-launch", "boost", "coast", "apogee", "descent", "landed") | Use "unknown" |
 
+## Motor Specification (Optional)
+
+You can include motor information during registration to enhance your telemetry display:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| motorManufacturer | string | Motor manufacturer name (e.g., "Aerotech", "Estes") |
+| motorDesignation | string | Motor model designation (e.g., "F42", "H128") |
+
+When both fields are provided, the server will automatically fetch performance data for your motor from the ThrustCurve database, including:
+- Total impulse
+- Maximum thrust
+- Burn time
+- Common name
+
+This information will be displayed alongside your telemetry data, providing context for your rocket's performance.
+
 ## Implementation Examples in Various Languages
 
 Below are conceptual examples of how to implement the protocol in different languages. Adapt these to your specific implementation needs.
@@ -98,11 +119,13 @@ TEAM_ID = 42  # Replace with your assigned team ID
 @sio.event
 def connect():
     print("Connected to server")
-    # Register team
+    # Register team with motor information
     sio.emit('register', {
         'role': 'team',
         'teamId': TEAM_ID,
-        'name': 'Team Name'
+        'name': 'Team Name',
+        'motorManufacturer': 'Aerotech',  # Optional
+        'motorDesignation': 'H550'  # Optional
     })
 
 @sio.event
@@ -167,11 +190,13 @@ void setupTelemetryClient() {
     client.on("connect", []() {
         std::cout << "Connected to server" << std::endl;
         
-        // Register team
+        // Register team with motor information
         json registration = {
             {"role", "team"},
             {"teamId", 42},  // Your team ID
-            {"name", "Team Name"}
+            {"name", "Team Name"},
+            {"motorManufacturer", "Cesaroni"}, // Optional
+            {"motorDesignation", "L1720"}      // Optional
         };
         client.emit("register", registration);
     });
@@ -221,6 +246,7 @@ void setupTelemetryClient() {
 4. **Error Handling**: Add robust error handling for all network operations
 5. **Data Validation**: Verify your data before sending to ensure proper formatting
 6. **Time Synchronization**: Ensure your system clock is accurate for proper timestamping
+7. **Motor Specification**: If you know your motor details, include them during registration for enhanced telemetry display
 
 ## Troubleshooting
 
@@ -231,6 +257,7 @@ If you experience connection issues:
 3. Check your network connection and firewall settings
 4. Validate your data format matches the specification exactly
 5. Implement logging to track the data being sent and received
+6. For motor data issues, verify the manufacturer name and motor designation match the ThrustCurve database format
 
 ## Competition Notes
 
