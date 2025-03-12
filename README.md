@@ -1,5 +1,8 @@
 # Lone Star Cup Rocket Telemetry Protocol
 
+![alt text](https://x6ct08ppoo.ufs.sh/f/26iB9qjHTPw5nl0cQiUfqBFpdGNCTUV2wt58onSa1esQrEZ0)
+![alt text](https://x6ct08ppoo.ufs.sh/f/26iB9qjHTPw529LGikFjHTPw50SN3QvY7WkyFt4rLbIgu9DB)
+
 ## Overview
 
 This guide explains how to connect your team's rocket to the Lone Star Cup telemetry server. The protocol is based on the WebSocket standard using Socket.IO, but can be implemented in any programming language that supports WebSockets.
