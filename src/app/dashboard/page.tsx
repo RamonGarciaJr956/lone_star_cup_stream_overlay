@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { useSocket } from '~/providers/SocketProvider';
 import Image from 'next/image';
+import teamsData from '~/data/teams.js';
+import sponsors from '~/data/sponsors';
 
 const AdminDashboard = () => {
     interface Team {
@@ -88,64 +90,13 @@ const AdminDashboard = () => {
     const [connectedTeams, setConnectedTeams] = useState<number[]>([]);
     const [lastUpdated, setLastUpdated] = useState<Record<number, string>>({});
     const [isLoading, setIsLoading] = useState(false);
+    const [showSponsors, setShowSponsors] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [showLoadModal, setShowLoadModal] = useState(false);
-    const [teams, setTeams] = useState<Team[]>([
-        {
-            id: 1,
-            name: "Houston Rocketeers",
-            rocketName: "Texas Titan MK2",
-            division: "Collegiate",
-            hasLiveTelemetry: false,
-            location: "Seymour Launch Site, TX",
-            launchTime: null,
-            events: [
-                { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
-                { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
-                { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
-                { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
-                { id: "mainChuteDeploy", text: "MAIN CHUTE DEPLOY", status: "pending", time: "T+????" },
-                { id: "landing", text: "LANDING", status: "pending", time: "T+????" },
-            ]
-        },
-        {
-            id: 2,
-            name: "Austin Aerospace",
-            rocketName: "Longhorn Lifter",
-            division: "Collegiate",
-            hasLiveTelemetry: false,
-            location: "Seymour Launch Site, TX",
-            launchTime: null,
-            events: [
-                { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
-                { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
-                { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
-                { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
-                { id: "mainChuteDeploy", text: "MAIN CHUTE DEPLOY", status: "pending", time: "T+????" },
-                { id: "landing", text: "LANDING", status: "pending", time: "T+????" },
-            ]
-        },
-        {
-            id: 3,
-            name: "Dallas Dynamics",
-            rocketName: "Maverick Prime",
-            division: "Collegiate",
-            hasLiveTelemetry: false,
-            location: "Seymour Launch Site, TX",
-            launchTime: null,
-            events: [
-                { id: "launch", text: "LAUNCH", status: "pending", time: "T+0:00" },
-                { id: "motorBurnout", text: "MOTOR BURNOUT", status: "pending", time: "T+????" },
-                { id: "ascent", text: "ASCENT", status: "pending", time: "T+????" },
-                { id: "apogee", text: "APOGEE", status: "pending", time: "T+????" },
-                { id: "drogueDeploy", text: "DROGUE DEPLOY", status: "pending", time: "T+????" },
-                { id: "mainChuteDeploy", text: "MAIN CHUTE DEPLOY", status: "pending", time: "T+????" },
-                { id: "landing", text: "LANDING", status: "pending", time: "T+????" },
-            ]
-        }
-    ]);
+    const [teams, setTeams] = useState<Team[]>(teamsData);
+    const timePerSponsorSlide = 5000; //5 sec per slide
+    const [sponsorsInterval, setSponsorInterval] = useState<NodeJS.Timeout | null>(null);
+    const [sponsorsTimeout, setSponsorTimeout] = useState<NodeJS.Timeout | null>(null);
 
     const updateLocalTime = () => {
         try {
@@ -171,7 +122,7 @@ const AdminDashboard = () => {
         if (storedTeams) {
             setShowLoadModal(true);
         }
-        
+
         return () => {
             clearInterval(timeInterval);
         }
@@ -328,6 +279,48 @@ const AdminDashboard = () => {
             socket.off('disconnect');
         };
     }, [socket, activeTeam]);
+
+    const showSponsorsSlideShow = () => {
+        if (sponsorsInterval) clearInterval(sponsorsInterval);
+        if (sponsorsTimeout) clearTimeout(sponsorsTimeout);
+
+        setShowSponsors(true);
+        sendCommand('sponsors-reset');
+        sendCommand('sponsors-show');
+
+        const newInterval = setInterval(() => {
+            sendCommand('sponsors-next');
+        }, timePerSponsorSlide);
+        setSponsorInterval(newInterval);
+
+        const newTimeout = setTimeout(() => {
+            if (sponsorsInterval) clearInterval(sponsorsInterval);
+            setSponsorInterval(null);
+            sendCommand('sponsors-hide');
+            setShowSponsors(false);
+        }, (sponsors.length * timePerSponsorSlide) - 100);
+        setSponsorTimeout(newTimeout);
+    };
+
+    const hideSponsorsSlideShow = () => {
+        setShowSponsors(false);
+        if (sponsorsInterval) {
+            clearInterval(sponsorsInterval);
+            setSponsorInterval(null);
+        }
+        if (sponsorsTimeout) {
+            clearTimeout(sponsorsTimeout);
+            setSponsorTimeout(null);
+        }
+        sendCommand('sponsors-hide');
+    };
+
+    useEffect(() => {
+        return () => {
+            if (sponsorsInterval) clearInterval(sponsorsInterval);
+            if (sponsorsTimeout) clearTimeout(sponsorsTimeout);
+        };
+    }, [sponsorsInterval, sponsorsTimeout]);
 
     const sendCommand = (command: string) => {
         if (!socket || !socketConnected) {
@@ -551,7 +544,7 @@ const AdminDashboard = () => {
 
                             <div className="p-2">
                                 <h3 className="text-xs uppercase text-slate-400 mb-2">Display Mode</h3>
-                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                                     <button
                                         className={`py-2 rounded-lg flex items-center justify-center border ${status === 'general' ? 'bg-blue-900 bg-opacity-40 border-blue-600 text-blue-200' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
                                         onClick={() => sendCommand('status-general')}
@@ -569,7 +562,7 @@ const AdminDashboard = () => {
                                 </div>
 
                                 <h3 className="text-xs uppercase text-slate-400 mb-2">Telemetry Display</h3>
-                                <div className="grid grid-cols-2 gap-2 mb-4">
+                                <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
                                     <button
                                         className={`py-2 rounded-lg flex items-center justify-center border ${showDetailed ? 'bg-blue-900 bg-opacity-40 border-blue-600 text-blue-200' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
                                         onClick={() => sendCommand('details-show')}
@@ -583,6 +576,24 @@ const AdminDashboard = () => {
                                     >
                                         <EyeOff size={16} className="mr-2" />
                                         Hide Details
+                                    </button>
+                                </div>
+
+                                <h3 className="text-xs uppercase text-slate-400 mb-2">Sponsors</h3>
+                                <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
+                                    <button
+                                        className={`py-2 rounded-lg flex items-center justify-center border ${showSponsors ? 'bg-blue-900 bg-opacity-40 border-blue-600 text-blue-200' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
+                                        onClick={showSponsorsSlideShow}
+                                    >
+                                        <Eye size={16} className="mr-2" />
+                                        Show Sponsors
+                                    </button>
+                                    <button
+                                        className={`py-2 rounded-lg flex items-center justify-center border ${!showSponsors ? 'bg-blue-900 bg-opacity-40 border-blue-600 text-blue-200' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}
+                                        onClick={hideSponsorsSlideShow}
+                                    >
+                                        <EyeOff size={16} className="mr-2" />
+                                        Hide Sponsors
                                     </button>
                                 </div>
                             </div>

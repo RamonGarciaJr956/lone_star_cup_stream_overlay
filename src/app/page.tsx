@@ -15,12 +15,14 @@ import {
   Flag,
   Cloud,
   Clock,
-  Timer
+  Timer,
+  Trophy
 } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { useSocket } from '~/providers/SocketProvider';
 import { AnimatePresence, motion } from "motion/react"
 import Image from 'next/image';
+import sponsors from '~/data/sponsors';
 
 interface TelemetryStream {
   id: number;
@@ -232,6 +234,13 @@ const LoneStarCupOverlay = () => {
     motorStats: null
   });
   const [altitudeData, setAltitudeData] = useState<altitudePlotPoint[]>([]);
+  const [showSponsors, setShowSponsors] = useState<boolean>(true);
+  const [currentSponsor, setCurrentSponsor] = useState<{
+    id: number,
+    name: string,
+    logo: string
+  } | null>(null);
+  const [sponsorIndex, setSponsorIndex] = useState<number>(0);
 
   // Coordinates for Seymour, TX
   const lat = 33.5945;
@@ -325,7 +334,7 @@ const LoneStarCupOverlay = () => {
   useEffect(() => {
     if (!socket) return;
     console.log("Socket connected");
-    
+
     socket.on("command", (command: string) => {
       const mainCommand = command.split("-")[0];
 
@@ -371,6 +380,38 @@ const LoneStarCupOverlay = () => {
               break;
           }
           break;
+
+        case "sponsors":
+          const subCommand = command.split("-")[1];
+          if (!subCommand) return;
+
+          switch (subCommand) {
+            case "show":
+              setShowSponsors(true);
+              break;
+
+            case "hide":
+              setShowSponsors(false);
+              break;
+
+            case "reset":
+              setCurrentSponsor(sponsors[0] ?? null);
+              setSponsorIndex(0);
+              break;
+
+            case "next":
+              const nextIndex = (sponsorIndex + 1) % sponsors.length;
+              setCurrentSponsor(sponsors[nextIndex] ?? null);
+              setSponsorIndex(nextIndex);
+              break;
+
+            case "prev":
+              const prevIndex = (sponsorIndex - 1 + sponsors.length) % sponsors.length;
+              setCurrentSponsor(sponsors[prevIndex] ?? null);
+              setSponsorIndex(prevIndex);
+              break;
+          }
+          break;
       }
     });
 
@@ -405,7 +446,7 @@ const LoneStarCupOverlay = () => {
     return () => {
       socket.off("commands");
     };
-  }, [events, socket, status])
+  }, [events, socket, sponsorIndex, status]);
 
   const location = "seymour launch site, tx";
 
@@ -616,15 +657,15 @@ const LoneStarCupOverlay = () => {
                   <div className="flex justify-between text-center">
                     <div className="px-2">
                       <div className="text-base font-bold font-mono">{telemtryData.motorStats?.totImpulseNs ? Math.round(telemtryData.motorStats.totImpulseNs) : 0}</div>
-                      <div className="text-xs text-blue-400">MAX <br/> IMPULSE (N⋅s)</div>
+                      <div className="text-xs text-blue-400">MAX <br /> IMPULSE (N⋅s)</div>
                     </div>
                     <div className="px-2 border-l border-r border-slate-800">
                       <div className="text-base font-bold font-mono">{telemtryData.motorStats?.maxThrustN ? Math.round(telemtryData.motorStats.maxThrustN) : 0}</div>
-                      <div className="text-xs text-blue-400">MAX <br/> THRUST (N)</div>
+                      <div className="text-xs text-blue-400">MAX <br /> THRUST (N)</div>
                     </div>
                     <div className="px-2">
                       <div className="text-base font-bold font-mono">{telemtryData.motorStats ? telemtryData.motorStats.burnTimeS : 0}</div>
-                      <div className="text-xs text-blue-400">MAX <br/> BURN (s)</div>
+                      <div className="text-xs text-blue-400">MAX <br /> BURN (s)</div>
                     </div>
                   </div>
                 </div>
@@ -632,6 +673,38 @@ const LoneStarCupOverlay = () => {
             )}
           </motion.div>
         )}
+
+        {
+          showSponsors && currentSponsor && (
+            <motion.div
+              key="sponsors"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute right-6 top-16 min-w-96" style={{
+                maxHeight: 'calc(100vh - 120px)'
+              }}>
+              <div className="bg-slate-900 bg-opacity-90 rounded-lg overflow-hidden border border-slate-800" style={{
+                boxShadow: '0 4px 20px rgba(0, 0, 0, 0.25)'
+              }}>
+                <div className="px-4 py-3 border-b border-slate-800 flex items-center">
+                  <Trophy size={16} className="mr-2 text-blue-400" />
+                  <span className="font-bold text-sm tracking-wider">SPONSORS - {currentSponsor.name}</span>
+                </div>
+
+                <div className="p-3 flex items-center justify-center">
+                  <Image
+                    src={currentSponsor.logo}
+                    alt={currentSponsor.name}
+                    width={512}
+                    height={0}
+                    className="max-w-full h-auto p-12 object-contain bg-white rounded-lg"
+                  />
+                </div>
+              </div>
+            </motion.div>
+          )
+        }
 
         {/* Bottom events timeline */}
         {status == 'flight' && (
