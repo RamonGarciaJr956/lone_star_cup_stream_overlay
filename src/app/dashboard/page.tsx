@@ -22,7 +22,8 @@ import {
     Radio,
     RefreshCw,
     AlertTriangle,
-    Database
+    Database,
+    GraduationCap
 } from 'lucide-react';
 import { useSocket } from '~/providers/SocketProvider';
 import Image from 'next/image';
@@ -33,7 +34,7 @@ const AdminDashboard = () => {
     interface Team {
         id: number;
         name: string;
-        rocketName: string;
+        universityName: string;
         division: string;
         hasLiveTelemetry: boolean;
         location: string;
@@ -373,7 +374,7 @@ const AdminDashboard = () => {
 
         // Send team info to overlay
         sendCommand("info-team-" + team.name);
-        sendCommand("info-rocket-" + team.rocketName);
+        sendCommand("info-university-" + team.universityName);
     };
 
     const refreshTelemetry = () => {
@@ -506,7 +507,7 @@ const AdminDashboard = () => {
                                 <span className="font-bold text-sm tracking-wider">TEAMS</span>
                             </div>
 
-                            <div className="p-2 max-h-[600px] overflow-y-auto">
+                            <div className="p-2 max-h-[400px] overflow-y-auto">
                                 {teams.map(team => (
                                     <div
                                         key={team.id}
@@ -523,8 +524,8 @@ const AdminDashboard = () => {
                                             )}
                                         </div>
                                         <div className="text-sm text-slate-300 flex items-center">
-                                            <Rocket size={12} className="mr-1 text-blue-400" />
-                                            {team.rocketName}
+                                            <GraduationCap size={12} className="mr-1 text-blue-400" />
+                                            {team.universityName}
                                         </div>
                                         <div className="text-xs text-slate-400 mt-1 flex items-center">
                                             <Flag size={10} className="mr-1 text-blue-400" />
@@ -621,8 +622,8 @@ const AdminDashboard = () => {
                                             <h2 className="text-2xl font-bold mb-1 uppercase">{activeTeam.name}</h2>
                                             <div className="flex space-x-4 text-sm text-slate-300">
                                                 <div className="flex items-center">
-                                                    <Rocket size={14} className="mr-1 text-blue-400" />
-                                                    {activeTeam.rocketName}
+                                                    <GraduationCap size={14} className="mr-1 text-blue-400" />
+                                                    {activeTeam.universityName}
                                                 </div>
                                                 <div className="flex items-center">
                                                     <Flag size={14} className="mr-1 text-blue-400" />

@@ -198,7 +198,7 @@ interface altitudePlotPoint {
 const LoneStarCupOverlay = () => {
   const [showDetailed, setShowDetailed] = useState<boolean>(false);
   const [status, setStatus] = useState<"general" | "flight">('flight');
-  const [rocketName, setRocketName] = useState<string>("texas titan mk2");
+  const [universityName, setUniversityName] = useState<string>("texas titan mk2");
   const [teamName, setTeamName] = useState<string>("houston rocketeers");
   const [weather, setWeather] = useState({
     temperature: 'N/A',
@@ -371,8 +371,8 @@ const LoneStarCupOverlay = () => {
           if (!infoValue) return;
 
           switch (infoType) {
-            case "rocket":
-              setRocketName(infoValue);
+            case "university":
+              setUniversityName(infoValue);
               break;
 
             case "team":
@@ -871,7 +871,7 @@ const LoneStarCupOverlay = () => {
                     exit={{ opacity: 0 }}
                     className="flex items-center">
                     <User size={12} className="mr-1 text-blue-400" />
-                    <span className="text-slate-400 mr-1">TEAM:</span>
+                    <span className="text-slate-400 mr-1 uppercase">team:</span>
                     <p className='uppercase'>{teamName}</p>
                   </motion.div>
                   <motion.div
@@ -881,8 +881,8 @@ const LoneStarCupOverlay = () => {
                     exit={{ opacity: 0 }}
                     className="flex items-center">
                     <Rocket size={12} className="mr-1 text-blue-400" />
-                    <span className="text-slate-400 mr-1">ROCKET:</span>
-                    <p className='uppercase'>{rocketName}</p>
+                    <span className="text-slate-400 mr-1 uppercase">university:</span>
+                    <p className='uppercase'>{universityName}</p>
                   </motion.div>
                 </>
               )
